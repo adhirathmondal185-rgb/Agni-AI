@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Configure preinstalled Android SDK & accept licenses
+      - name: Configure Android SDK & accept licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "Using Android SDK at: $SDK_DIR"
@@ -28,6 +28,8 @@ jobs:
           if [ -n "$SDKMANAGER" ]; then
             echo "Found sdkmanager at: $SDKMANAGER"
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-36" "build-tools;36.0.0" > /dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-36.1" > /dev/null 2>&1 || true
           else
             echo "sdkmanager not found; relying on pre-accepted licenses"
           fi
@@ -40,14 +42,46 @@ jobs:
       - name: Prepare signing keystore and env
         run: |
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            echo "Decoding debug.keystore from debug.keystore.base64..."
             tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
+            echo "debug.keystore.base64 not found; generating fallback debug.keystore..."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
           if [ ! -f .env ]; then
             touch .env
           fi
+          ls -la debug.keystore app/google-services.json .env || true
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 --stacktrace 2>&1 | tee build.log
+
+      - name: Publish failure summary if build failed
+        if: failure()
+        run: |
+          {
+            echo "## Build Debug APK Error Summary"
+            echo '```text'
+            if [ -f build.log ]; then
+              grep -n -E "FAILURE:|What went wrong:|Caused by:|e: file:|> Could not|> Keystore|> Execution failed" build.log | tail -n 35 || true
+              echo "--- Last 40 lines of build.log ---"
+              tail -n 40 build.log
+            else
+              echo "build.log was not created."
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare APK file
         run: cp app/build/outputs/apk/debug/app-debug.apk Agni-AI-debug.apk
@@ -58,3 +92,11 @@ jobs:
           name: Agni-AI-APK
           path: Agni-AI-debug.apk
           retention-days: 30
+
+      - name: Publish success summary
+        if: success()
+        run: |
+          {
+            echo "## Agni AI APK Ready!"
+            echo "Scroll down to **Artifacts** and tap **Agni-AI-APK** to download."
+          } >> "$GITHUB_STEP_SUMMARY"
