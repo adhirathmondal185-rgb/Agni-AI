@@ -1,0 +1,320 @@
+package com.example
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.ai.FirebaseAiModelRouter
+import com.example.auth.authStateFlow
+import com.example.auth.signOut
+import com.example.data.AgniRepository
+import com.example.firebase.configureAppCheck
+import com.example.ui.components.AgniSidebarContent
+import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.ChatWorkspaceScreen
+import com.example.ui.screens.MemoryScreen
+import com.example.ui.screens.SettingsAndFeedbackScreen
+import com.example.ui.screens.WorkspaceHubScreen
+import com.example.ui.theme.AgniTheme
+import com.example.viewmodel.AgniDestination
+import com.example.viewmodel.AgniViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.launch
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // STEP 1 (MANDATORY): Configure Firebase App Check with launch intent before UI/ViewModels
+        configureAppCheck(this, intent)
+
+        enableEdgeToEdge()
+
+        setContent {
+            AgniRootApp()
+        }
+    }
+}
+
+@Composable
+private fun AgniRootApp() {
+    val auth = Firebase.auth
+    val currentUser by auth.authStateFlow()
+        .collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var pendingAccountSwitch by remember { mutableStateOf(false) }
+
+    val user = currentUser
+    if (user == null) {
+        AgniTheme(themeMode = "dark") {
+            AuthScreen(
+                autoLaunchPicker = pendingAccountSwitch,
+                onPickerConsumed = { pendingAccountSwitch = false },
+                onAuthSuccess = { pendingAccountSwitch = false }
+            )
+        }
+    } else {
+        key(user.uid) {
+            AgniAuthenticatedShell(
+                user = user,
+                onRequestAccountSwitch = { pendingAccountSwitch = true }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgniAuthenticatedShell(
+    user: FirebaseUser,
+    onRequestAccountSwitch: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    val viewModel: AgniViewModel = viewModel(
+        key = user.uid,
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY]) {
+                    "APPLICATION_KEY missing from CreationExtras"
+                }
+                val databaseId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(databaseId)
+                AgniViewModel(
+                    repository = AgniRepository(db),
+                    aiRouter = FirebaseAiModelRouter(),
+                    currentUserId = user.uid,
+                    initialDisplayName = user.displayName ?: "Agni Explorer",
+                    initialEmail = user.email,
+                    initialPhotoUrl = user.photoUrl?.toString()
+                )
+            }
+        }
+    )
+
+    val composer by viewModel.composer.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val chatsState by viewModel.chatsState.collectAsStateWithLifecycle()
+    val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
+    val filesState by viewModel.filesState.collectAsStateWithLifecycle()
+    val memoriesState by viewModel.memoriesState.collectAsStateWithLifecycle()
+    val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
+    val usage by viewModel.usage.collectAsStateWithLifecycle()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(composer.statusSnackbar) {
+        composer.statusSnackbar?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearSnackbar()
+        }
+    }
+
+    AgniTheme(themeMode = settings.themeMode) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isExpanded = maxWidth >= 840.dp
+            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+            val displayName = user.displayName?.takeIf { it.isNotBlank() } ?: "Agni Explorer"
+
+            val mainContent: @Composable (Boolean) -> Unit = { showDrawerButton ->
+                Scaffold(
+                    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                    modifier = Modifier.fillMaxSize()
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .padding(bottom = innerPadding.calculateBottomPadding().coerceAtMost(0.dp))
+                    ) {
+                        when (composer.currentDestination) {
+                            AgniDestination.CHAT -> {
+                                ChatWorkspaceScreen(
+                                    composer = composer,
+                                    messagesState = messagesState,
+                                    modelCatalog = viewModel.modelCatalog,
+                                    showDrawerButton = showDrawerButton,
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onNewChat = { viewModel.startNewChat() },
+                                    onSelectMode = { viewModel.selectMode(it) },
+                                    onSelectModel = { viewModel.selectModel(it) },
+                                    onSelectLanguage = { viewModel.selectLanguage(it) },
+                                    onSelectTranslationTarget = { viewModel.selectTranslationTarget(it) },
+                                    onToggleTransliteration = { viewModel.toggleTransliteration(it) },
+                                    onDraftChange = { viewModel.updateDraft(it) },
+                                    onAttachFile = { viewModel.attachFile(it) },
+                                    onClearAttachment = { viewModel.clearAttachment() },
+                                    onVoiceListeningChanged = { viewModel.setVoiceListening(it) },
+                                    onVoiceResult = { viewModel.onVoiceFinalTranscript(it) },
+                                    onSendMessage = { viewModel.sendMessage(it) },
+                                    onStopGeneration = { viewModel.stopGeneration() },
+                                    onShowError = { viewModel.showError(it) },
+                                    onClearError = { viewModel.clearError() },
+                                    onOpenFeedback = { viewModel.navigateTo(AgniDestination.SETTINGS) }
+                                )
+                            }
+                            AgniDestination.HUB -> {
+                                WorkspaceHubScreen(
+                                    usage = usage,
+                                    filesState = filesState,
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onLaunchMode = { mode -> viewModel.startNewChat(mode) },
+                                    onDeleteFileRecord = { viewModel.deleteFileRecord(it) }
+                                )
+                            }
+                            AgniDestination.MEMORY -> {
+                                MemoryScreen(
+                                    memoriesState = memoriesState,
+                                    memoryEnabled = settings.memoryEnabled,
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onToggleGlobalMemory = { viewModel.updateMemoryEnabled(it) },
+                                    onAddMemory = { fact, cat -> viewModel.addMemory(fact, cat) },
+                                    onToggleMemory = { viewModel.toggleMemory(it) },
+                                    onDeleteMemory = { viewModel.deleteMemory(it) }
+                                )
+                            }
+                            AgniDestination.SETTINGS -> {
+                                SettingsAndFeedbackScreen(
+                                    userDisplayName = displayName,
+                                    userEmail = user.email,
+                                    settings = settings,
+                                    modelCatalog = viewModel.modelCatalog,
+                                    feedbackState = feedbackState,
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onUpdateTheme = { viewModel.updateThemeMode(it) },
+                                    onSelectLanguage = { viewModel.selectLanguage(it) },
+                                    onSelectModel = { viewModel.selectModel(it) },
+                                    onToggleVoiceAutoSend = { viewModel.updateVoiceAutoSend(it) },
+                                    onToggleMemory = { viewModel.updateMemoryEnabled(it) },
+                                    onToggleWebResearch = { viewModel.updateWebResearchEnabled(it) },
+                                    onSubmitFeedback = { r, c, msg -> viewModel.submitFeedback(r, c, msg) },
+                                    onClearAllChats = { viewModel.clearAllChats() },
+                                    onClearAllMemories = { viewModel.clearAllMemories() },
+                                    onSwitchAccount = {
+                                        onRequestAccountSwitch()
+                                        signOut(
+                                            credentialManager = credentialManager,
+                                            scope = scope
+                                        )
+                                    },
+                                    onSignOut = {
+                                        signOut(
+                                            credentialManager = credentialManager,
+                                            scope = scope
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            val performAccountSwitch: () -> Unit = {
+                onRequestAccountSwitch()
+                signOut(
+                    credentialManager = credentialManager,
+                    scope = scope
+                )
+            }
+
+            if (isExpanded) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    AgniSidebarContent(
+                        userDisplayName = displayName,
+                        userEmail = user.email,
+                        currentDestination = composer.currentDestination,
+                        activeChatId = composer.activeChatId,
+                        searchQuery = composer.historySearchQuery,
+                        chatsState = chatsState,
+                        onSearchQueryChange = { viewModel.updateSearchQuery(it) },
+                        onNewChat = { viewModel.startNewChat() },
+                        onSelectChat = { viewModel.selectChat(it) },
+                        onTogglePin = { viewModel.togglePinChat(it) },
+                        onDeleteChat = { viewModel.deleteChat(it) },
+                        onNavigate = { viewModel.navigateTo(it) },
+                        onSwitchAccount = performAccountSwitch,
+                        modifier = Modifier.width(300.dp)
+                    )
+                    VerticalDivider(modifier = Modifier.fillMaxHeight())
+                    Box(modifier = Modifier.weight(1f)) {
+                        mainContent(false)
+                    }
+                }
+            } else {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet(modifier = Modifier.width(308.dp)) {
+                            AgniSidebarContent(
+                                userDisplayName = displayName,
+                                userEmail = user.email,
+                                currentDestination = composer.currentDestination,
+                                activeChatId = composer.activeChatId,
+                                searchQuery = composer.historySearchQuery,
+                                chatsState = chatsState,
+                                onSearchQueryChange = { viewModel.updateSearchQuery(it) },
+                                onNewChat = {
+                                    viewModel.startNewChat()
+                                    scope.launch { drawerState.close() }
+                                },
+                                onSelectChat = {
+                                    viewModel.selectChat(it)
+                                    scope.launch { drawerState.close() }
+                                },
+                                onTogglePin = { viewModel.togglePinChat(it) },
+                                onDeleteChat = { viewModel.deleteChat(it) },
+                                onNavigate = { dest ->
+                                    viewModel.navigateTo(dest)
+                                    scope.launch { drawerState.close() }
+                                },
+                                onSwitchAccount = {
+                                    scope.launch { drawerState.close() }
+                                    performAccountSwitch()
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    mainContent(true)
+                }
+            }
+        }
+    }
+}

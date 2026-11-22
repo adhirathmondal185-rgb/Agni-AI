@@ -1,0 +1,295 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HARDENED HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidMode(mode) {
+      return mode is string && mode in ['chat', 'translation', 'education', 'math', 'coding', 'research'];
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 160)) &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             data.preferredLanguage is string && data.preferredLanguage.size() >= 2 && data.preferredLanguage.size() <= 40 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidChat(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             isValidMode(data.mode) &&
+             data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64 &&
+             data.language is string && data.language.size() >= 2 && data.language.size() <= 40 &&
+             data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 10000 &&
+             data.lastMessagePreview is string && data.lastMessagePreview.size() <= 300 &&
+             data.pinned is bool &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidMessage(data, chatId) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.chatId is string && data.chatId == chatId && data.chatId.size() <= 128 &&
+             data.role is string && data.role in ['user', 'assistant'] &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 32000 &&
+             isValidMode(data.mode) &&
+             data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64 &&
+             data.language is string && data.language.size() >= 2 && data.language.size() <= 40 &&
+             (!('attachmentName' in data) || data.attachmentName == null || (data.attachmentName is string && data.attachmentName.size() <= 200)) &&
+             (!('attachmentMimeType' in data) || data.attachmentMimeType == null || (data.attachmentMimeType is string && data.attachmentMimeType.size() <= 80)) &&
+             (!('citations' in data) || (data.citations is list && data.citations.size() <= 20 && (data.citations.size() == 0 || data.citations[0] is string))) &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidFileRecord(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             (!('chatId' in data) || data.chatId == null || (data.chatId is string && data.chatId.size() <= 128)) &&
+             data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+             data.mimeType is string && data.mimeType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] &&
+             data.sizeBytes is int && data.sizeBytes >= 1 && data.sizeBytes <= 20971520 &&
+             (!('analysisSummary' in data) || data.analysisSummary == null || (data.analysisSummary is string && data.analysisSummary.size() <= 1000)) &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidSettings(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.themeMode is string && data.themeMode in ['system', 'dark', 'light'] &&
+             data.preferredLanguage is string && data.preferredLanguage.size() >= 2 && data.preferredLanguage.size() <= 40 &&
+             data.defaultModelId is string && data.defaultModelId.size() >= 1 && data.defaultModelId.size() <= 64 &&
+             isValidMode(data.defaultMode) &&
+             data.voiceAutoSend is bool &&
+             data.memoryEnabled is bool &&
+             data.webResearchEnabled is bool &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAiModel(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.modelKey is string && data.modelKey.size() >= 1 && data.modelKey.size() <= 64 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 64 &&
+             data.tier is string && data.tier in ['fast', 'balanced', 'reasoning', 'external'] &&
+             data.enabled is bool &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidFeedback(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             (!('chatId' in data) || data.chatId == null || (data.chatId is string && data.chatId.size() <= 128)) &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.category is string && data.category in ['accuracy', 'language', 'speed', 'ui', 'feature', 'bug'] &&
+             data.comment is string && data.comment.size() >= 1 && data.comment.size() <= 2000 &&
+             data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64 &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidUsage(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.totalMessages is int && data.totalMessages >= 0 && data.totalMessages <= 1000000 &&
+             data.totalImagesAnalyzed is int && data.totalImagesAnalyzed >= 0 && data.totalImagesAnalyzed <= 100000 &&
+             data.totalPdfsAnalyzed is int && data.totalPdfsAnalyzed >= 0 && data.totalPdfsAnalyzed <= 100000 &&
+             data.totalVoiceInputs is int && data.totalVoiceInputs >= 0 && data.totalVoiceInputs <= 100000 &&
+             data.totalTranslations is int && data.totalTranslations >= 0 && data.totalTranslations <= 100000 &&
+             data.estimatedTokens is int && data.estimatedTokens >= 0 && data.estimatedTokens <= 1000000000 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidMemory(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.fact is string && data.fact.size() >= 1 && data.fact.size() <= 500 &&
+             data.category is string && data.category in ['preference', 'language', 'profession', 'goal', 'general'] &&
+             data.active is bool &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // --- 1. USERS ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'email', 'photoUrl', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoUrl', 'preferredLanguage', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // --- 2. CHATS ---
+      match /chats/{chatId} {
+        allow get: if isOwner(userId) && isValidId(chatId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(chatId) &&
+                         incoming().keys().hasAll(['userId', 'title', 'mode', 'modelId', 'language', 'messageCount', 'lastMessagePreview', 'pinned', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'title', 'mode', 'modelId', 'language', 'messageCount', 'lastMessagePreview', 'pinned', 'createdAt', 'updatedAt']) &&
+                         isValidChat(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(chatId) &&
+                         isValidChat(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'mode', 'modelId', 'language', 'messageCount', 'lastMessagePreview', 'pinned', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(chatId);
+
+        // --- 3. MESSAGES ---
+        match /messages/{messageId} {
+          allow get: if isOwner(userId) && isValidId(chatId) && isValidId(messageId);
+          allow list: if isOwner(userId) && isValidId(chatId);
+          allow create: if isOwner(userId) &&
+                           isValidId(chatId) &&
+                           isValidId(messageId) &&
+                           incoming().keys().hasAll(['userId', 'chatId', 'role', 'content', 'mode', 'modelId', 'language', 'createdAt']) &&
+                           incoming().keys().hasOnly(['userId', 'chatId', 'role', 'content', 'mode', 'modelId', 'language', 'attachmentName', 'attachmentMimeType', 'citations', 'createdAt']) &&
+                           isValidMessage(incoming(), chatId) &&
+                           exists(/databases/$(database)/documents/users/$(userId)/chats/$(chatId));
+          allow update: if false;
+          allow delete: if isOwner(userId) && isValidId(chatId) && isValidId(messageId);
+        }
+      }
+
+      // --- 4. FILES ---
+      match /files/{fileId} {
+        allow get: if isOwner(userId) && isValidId(fileId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(fileId) &&
+                         incoming().keys().hasAll(['userId', 'fileName', 'mimeType', 'sizeBytes', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'chatId', 'fileName', 'mimeType', 'sizeBytes', 'analysisSummary', 'createdAt']) &&
+                         isValidFileRecord(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(fileId) &&
+                         isValidFileRecord(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['analysisSummary', 'chatId']);
+        allow delete: if isOwner(userId) && isValidId(fileId);
+      }
+
+      // --- 5. SETTINGS ---
+      match /settings/{settingId} {
+        allow get: if isOwner(userId) && isValidId(settingId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(settingId) &&
+                         incoming().keys().hasAll(['userId', 'themeMode', 'preferredLanguage', 'defaultModelId', 'defaultMode', 'voiceAutoSend', 'memoryEnabled', 'webResearchEnabled', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'themeMode', 'preferredLanguage', 'defaultModelId', 'defaultMode', 'voiceAutoSend', 'memoryEnabled', 'webResearchEnabled', 'createdAt', 'updatedAt']) &&
+                         isValidSettings(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(settingId) &&
+                         isValidSettings(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['themeMode', 'preferredLanguage', 'defaultModelId', 'defaultMode', 'voiceAutoSend', 'memoryEnabled', 'webResearchEnabled', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(settingId);
+      }
+
+      // --- 6. AI_MODELS ---
+      match /ai_models/{modelId} {
+        allow get: if isOwner(userId) && isValidId(modelId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(modelId) &&
+                         incoming().keys().hasAll(['userId', 'modelKey', 'displayName', 'provider', 'tier', 'enabled', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'modelKey', 'displayName', 'provider', 'tier', 'enabled', 'createdAt', 'updatedAt']) &&
+                         isValidAiModel(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(modelId) &&
+                         isValidAiModel(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'provider', 'tier', 'enabled', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(modelId);
+      }
+
+      // --- 7. FEEDBACK ---
+      match /feedback/{feedbackId} {
+        allow get: if isOwner(userId) && isValidId(feedbackId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(feedbackId) &&
+                         incoming().keys().hasAll(['userId', 'rating', 'category', 'comment', 'modelId', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'chatId', 'rating', 'category', 'comment', 'modelId', 'createdAt']) &&
+                         isValidFeedback(incoming());
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(feedbackId);
+      }
+
+      // --- 8. USAGE ---
+      match /usage/{usageId} {
+        allow get: if isOwner(userId) && isValidId(usageId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(usageId) &&
+                         incoming().keys().hasAll(['userId', 'totalMessages', 'totalImagesAnalyzed', 'totalPdfsAnalyzed', 'totalVoiceInputs', 'totalTranslations', 'estimatedTokens', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'totalMessages', 'totalImagesAnalyzed', 'totalPdfsAnalyzed', 'totalVoiceInputs', 'totalTranslations', 'estimatedTokens', 'createdAt', 'updatedAt']) &&
+                         isValidUsage(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(usageId) &&
+                         isValidUsage(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['totalMessages', 'totalImagesAnalyzed', 'totalPdfsAnalyzed', 'totalVoiceInputs', 'totalTranslations', 'estimatedTokens', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(usageId);
+      }
+
+      // --- 9. MEMORY ---
+      match /memory/{memoryId} {
+        allow get: if isOwner(userId) && isValidId(memoryId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(memoryId) &&
+                         incoming().keys().hasAll(['userId', 'fact', 'category', 'active', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'fact', 'category', 'active', 'createdAt', 'updatedAt']) &&
+                         isValidMemory(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(memoryId) &&
+                         isValidMemory(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['fact', 'category', 'active', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(memoryId);
+      }
+    }
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile with preferred language and metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID matching document ID." },
+        "displayName": { "type": "string", "description": "User display name (1-80 chars)." },
+        "email": { "type": "string", "format": "email", "description": "Optional user email." },
+        "photoUrl": { "type": "string", "format": "uri", "description": "Optional avatar URL." },
+        "preferredLanguage": { "type": "string", "description": "Preferred UI and AI response language." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "displayName", "preferredLanguage", "createdAt", "updatedAt"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "Multilingual AI conversation session metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "title": { "type": "string", "description": "Conversation title (1-120 chars)." },
+        "mode": {
+          "type": "string",
+          "enum": ["chat", "translation", "education", "math", "coding", "research"],
+          "description": "Active specialist assistant mode."
+        },
+        "modelId": { "type": "string", "description": "Selected AI model identifier." },
+        "language": { "type": "string", "description": "Primary language of the conversation." },
+        "messageCount": { "type": "integer", "description": "Total persisted messages in this chat." },
+        "lastMessagePreview": { "type": "string", "description": "Short preview of latest message." },
+        "pinned": { "type": "boolean", "description": "Whether the conversation is pinned." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "title", "mode", "modelId", "language", "messageCount", "lastMessagePreview", "pinned", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Single user or assistant turn within a chat session.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "chatId": { "type": "string", "description": "Parent chat document ID." },
+        "role": { "type": "string", "enum": ["user", "assistant"], "description": "Message author role." },
+        "content": { "type": "string", "description": "Message markdown or plain text body." },
+        "mode": {
+          "type": "string",
+          "enum": ["chat", "translation", "education", "math", "coding", "research"],
+          "description": "Assistant mode used for this message."
+        },
+        "modelId": { "type": "string", "description": "Model ID used to generate or process this message." },
+        "language": { "type": "string", "description": "Language context for this turn." },
+        "attachmentName": { "type": "string", "description": "Optional image or PDF filename attached." },
+        "attachmentMimeType": { "type": "string", "description": "Optional MIME type of attached file." },
+        "citations": { "type": "array", "description": "Optional web grounding citation labels or URLs (max 20)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." }
+      },
+      "required": ["userId", "chatId", "role", "content", "mode", "modelId", "language", "createdAt"]
+    },
+    "UploadedFileRecord": {
+      "title": "UploadedFileRecord",
+      "description": "Metadata record of an image or PDF analyzed with multimodal AI.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "chatId": { "type": "string", "description": "Optional parent chat session ID." },
+        "fileName": { "type": "string", "description": "Display filename (1-200 chars)." },
+        "mimeType": {
+          "type": "string",
+          "enum": ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+          "description": "Validated file MIME type."
+        },
+        "sizeBytes": { "type": "integer", "description": "File size in bytes (<= 20MB)." },
+        "analysisSummary": { "type": "string", "description": "Short AI analysis excerpt." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." }
+      },
+      "required": ["userId", "fileName", "mimeType", "sizeBytes", "createdAt"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Synced user preferences for theme, language, default model, voice, and memory.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "themeMode": { "type": "string", "enum": ["system", "dark", "light"], "description": "App theme preference." },
+        "preferredLanguage": { "type": "string", "description": "Default Indian or global language." },
+        "defaultModelId": { "type": "string", "description": "Preferred Gemini model ID." },
+        "defaultMode": {
+          "type": "string",
+          "enum": ["chat", "translation", "education", "math", "coding", "research"],
+          "description": "Default assistant mode."
+        },
+        "voiceAutoSend": { "type": "boolean", "description": "Auto-send dictated voice input." },
+        "memoryEnabled": { "type": "boolean", "description": "Include active memory entries in prompts." },
+        "webResearchEnabled": { "type": "boolean", "description": "Enable web search grounding in Research mode." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "themeMode", "preferredLanguage", "defaultModelId", "defaultMode", "voiceAutoSend", "memoryEnabled", "webResearchEnabled", "createdAt", "updatedAt"]
+    },
+    "AiModelConfig": {
+      "title": "AiModelConfig",
+      "description": "User-scoped model router catalog entry and availability preference.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "modelKey": { "type": "string", "description": "Backend model identifier." },
+        "displayName": { "type": "string", "description": "Human-friendly model name." },
+        "provider": { "type": "string", "description": "Provider name (e.g., Firebase AI Logic)." },
+        "tier": { "type": "string", "enum": ["fast", "balanced", "reasoning", "external"], "description": "Model capability tier." },
+        "enabled": { "type": "boolean", "description": "Whether model is active in selector." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "modelKey", "displayName", "provider", "tier", "enabled", "createdAt", "updatedAt"]
+    },
+    "UserFeedback": {
+      "title": "UserFeedback",
+      "description": "User rating and qualitative feedback on AI responses or platform UX.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Author Firebase Auth UID." },
+        "chatId": { "type": "string", "description": "Optional related chat ID." },
+        "rating": { "type": "integer", "description": "Star rating from 1 to 5." },
+        "category": { "type": "string", "enum": ["accuracy", "language", "speed", "ui", "feature", "bug"], "description": "Feedback category." },
+        "comment": { "type": "string", "description": "Detailed user comment (1-2000 chars)." },
+        "modelId": { "type": "string", "description": "Active model when feedback was submitted." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." }
+      },
+      "required": ["userId", "rating", "category", "comment", "modelId", "createdAt"]
+    },
+    "UsageMetrics": {
+      "title": "UsageMetrics",
+      "description": "User activity counters across chat, multimodal analysis, voice, and translation.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "totalMessages": { "type": "integer", "description": "Total AI exchanges." },
+        "totalImagesAnalyzed": { "type": "integer", "description": "Total images analyzed." },
+        "totalPdfsAnalyzed": { "type": "integer", "description": "Total PDFs analyzed." },
+        "totalVoiceInputs": { "type": "integer", "description": "Total voice dictations completed." },
+        "totalTranslations": { "type": "integer", "description": "Total translations generated." },
+        "estimatedTokens": { "type": "integer", "description": "Approximate characters/tokens processed." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "totalMessages", "totalImagesAnalyzed", "totalPdfsAnalyzed", "totalVoiceInputs", "totalTranslations", "estimatedTokens", "createdAt", "updatedAt"]
+    },
+    "MemoryEntry": {
+      "title": "MemoryEntry",
+      "description": "User-controlled persistent context memory injected into AI prompts when enabled.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "fact": { "type": "string", "description": "Memory fact or preference (1-500 chars)." },
+        "category": { "type": "string", "enum": ["preference", "language", "profession", "goal", "general"], "description": "Memory category." },
+        "active": { "type": "boolean", "description": "Whether this memory is currently active." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "fact", "category", "active", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile document isolated to the authenticated owner."
+    },
+    "/users/{userId}/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "User chat history sessions."
+    },
+    "/users/{userId}/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Immutable conversation turns inside a chat session."
+    },
+    "/users/{userId}/files/{fileId}": {
+      "schema": { "$ref": "#/entities/UploadedFileRecord" },
+      "description": "Analyzed image and PDF attachment metadata records."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/UserSettings" },
+      "description": "User settings documents (e.g. preferences)."
+    },
+    "/users/{userId}/ai_models/{modelId}": {
+      "schema": { "$ref": "#/entities/AiModelConfig" },
+      "description": "User-scoped AI model router entries."
+    },
+    "/users/{userId}/feedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/UserFeedback" },
+      "description": "User feedback submissions."
+    },
+    "/users/{userId}/usage/{usageId}": {
+      "schema": { "$ref": "#/entities/UsageMetrics" },
+      "description": "User usage counters and analytics summary."
+    },
+    "/users/{userId}/memory/{memoryId}": {
+      "schema": { "$ref": "#/entities/MemoryEntry" },
+      "description": "User-managed persistent AI memory entries."
+    }
+  }
+}

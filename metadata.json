@@ -1,0 +1,6 @@
+{
+  "name": "Agni AI",
+  "description": "Multilingual AI assistant platform for chat, research, translation, coding, math, voice input, and image/PDF analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Agni AI</string>
+    <string name="app_tagline">One AI. Many Possibilities.</string>
+    <string name="sign_in_with_google">Select Google Account</string>
+    <string name="switch_account">Switch Account</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="new_chat">New Chat</string>
+    <string name="composer_placeholder">Ask Agni AI anything…</string>
+    <string name="listening_voice">Listening… speak now</string>
+    <string name="cd_open_drawer">Open navigation menu</string>
+    <string name="cd_new_chat">Start new conversation</string>
+    <string name="cd_send_message">Send message</string>
+    <string name="cd_voice_input">Start voice input</string>
+    <string name="cd_attach_image">Attach image for analysis</string>
+    <string name="cd_attach_pdf">Attach PDF document for analysis</string>
+    <string name="cd_remove_attachment">Remove attachment</string>
+    <string name="cd_copy_message">Copy message</string>
+    <string name="cd_agni_emblem">Agni AI emblem</string>
+    <string name="cd_hero_banner">Agni AI neural flame artwork</string>
+</resources>
