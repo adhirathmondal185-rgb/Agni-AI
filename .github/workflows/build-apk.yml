@@ -27,7 +27,6 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then
             SDKMANAGER="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
           fi
-          echo "Using sdkmanager: $SDKMANAGER"
           if [ -n "$SDKMANAGER" ]; then
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "cmdline-tools;latest" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
@@ -37,7 +36,6 @@ jobs:
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-36.1" || true
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "build-tools;36.1.0" || true
-            ls -la "$SDK_DIR/platforms" || true
           fi
 
       - name: Set up Gradle 9.3.1
@@ -45,12 +43,26 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare signing keystore and env
+      - name: Prepare Firebase config, signing keystore, and env
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
-            echo "Decoding debug.keystore from debug.keystore.base64..."
-            tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
+          if [ ! -f app/google-services.json ] && [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "Restored app/google-services.json from GitHub Secret."
+          elif [ ! -f app/google-services.json ]; then
+            echo "::warning title=Firebase Config Missing::app/google-services.json was not synced. Add GOOGLE_SERVICES_JSON in GitHub Secrets for Google Sign-In & Firebase AI."
           fi
+
+          if [ ! -f debug.keystore ] && [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > debug.keystore
+            echo "Restored debug.keystore from GitHub Secret."
+          elif [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
+            echo "Decoded debug.keystore from debug.keystore.base64."
+          fi
+
           if [ ! -f debug.keystore ]; then
             echo "Generating fallback debug.keystore..."
             keytool -genkeypair -v \
@@ -63,6 +75,7 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
+
           if [ ! -f .env ]; then
             touch .env
           fi
@@ -81,12 +94,6 @@ jobs:
               ERR_LINES="$(tail -n 15 build.log | tr '\n' ' ' | cut -c1-900)"
             fi
             echo "::error title=Exact Gradle Error::$ERR_LINES"
-            {
-              echo "## Exact Gradle Error"
-              echo '```text'
-              tail -n 60 build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Prepare APK file

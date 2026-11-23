@@ -52,6 +52,7 @@ import com.example.ui.theme.AgniTheme
 import com.example.viewmodel.AgniDestination
 import com.example.viewmodel.AgniViewModel
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -74,6 +75,34 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AgniRootApp() {
+    val context = LocalContext.current
+    val isFirebaseReady = remember(context) {
+        FirebaseApp.getApps(context).isNotEmpty()
+    }
+    if (!isFirebaseReady) {
+        AgniTheme(themeMode = "dark") {
+            androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
+                androidx.compose.foundation.layout.Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Agni AI — Firebase Setup Required",
+                        style = androidx.compose.material3.MaterialTheme.typography.headlineSmall
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(top = 12.dp))
+                    androidx.compose.material3.Text(
+                        text = "This APK was built without app/google-services.json. Add GOOGLE_SERVICES_JSON in GitHub Actions Secrets and rebuild the APK to enable Google Sign-In, Cloud Firestore, and Gemini AI.",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+        return
+    }
+
     val auth = Firebase.auth
     val currentUser by auth.authStateFlow()
         .collectAsStateWithLifecycle(initialValue = auth.currentUser)
