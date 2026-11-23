@@ -183,16 +183,30 @@ class FirebaseAiModelRouter : AiModelRouter {
     }
 
     private fun buildHistoryContents(history: List<ChatMessage>): List<Content> {
-        // Keep last 12 turns to balance rich context and token efficiency
-        return history
+        // Keep last 12 turns, strictly alternating user/model and ending on a model turn
+        // so prior failed/unanswered user prompts never produce invalid consecutive user turns.
+        val cleaned = mutableListOf<Pair<String, String>>()
+        history
             .takeLast(12)
             .filter { it.content.isNotBlank() }
-            .map { msg ->
+            .forEach { msg ->
                 val role = if (msg.role == "assistant") "model" else "user"
-                content(role = role) {
-                    text(msg.content)
+                if (cleaned.isEmpty() && role == "model") return@forEach
+                if (cleaned.isNotEmpty() && cleaned.last().first == role) {
+                    val prev = cleaned.removeAt(cleaned.lastIndex)
+                    cleaned.add(role to "${prev.second}\n\n${msg.content}")
+                } else {
+                    cleaned.add(role to msg.content)
                 }
             }
+        while (cleaned.isNotEmpty() && cleaned.last().first == "user") {
+            cleaned.removeAt(cleaned.lastIndex)
+        }
+        return cleaned.map { (role, text) ->
+            content(role = role) {
+                text(text)
+            }
+        }
     }
 
     private fun buildUserContent(request: AiInferenceRequest): Content {
