@@ -80,6 +80,18 @@ jobs:
             touch .env
           fi
 
+          FP_LINES="$(keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android 2>/dev/null | grep -E 'SHA1:|SHA256:' | sed 's/^[[:space:]]*//' || true)"
+          if [ -n "$FP_LINES" ]; then
+            FP_ONE_LINE="$(printf '%s' "$FP_LINES" | tr '\n' ' ')"
+            echo "::notice title=APK Signing Fingerprints::$FP_ONE_LINE"
+            {
+              echo "## APK Signing Fingerprints"
+              echo '```text'
+              echo "$FP_LINES"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Build Debug APK
         run: |
           set -o pipefail
