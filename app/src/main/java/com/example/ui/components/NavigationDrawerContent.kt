@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Dashboard
@@ -139,6 +140,13 @@ fun AgniSidebarContent(
                 selected = currentDestination == AgniDestination.HUB,
                 testTag = "nav_hub",
                 onClick = { onNavigate(AgniDestination.HUB) }
+            )
+            SidebarNavItem(
+                icon = Icons.Rounded.AccountTree,
+                label = stringResource(R.string.nav_architecture),
+                selected = currentDestination == AgniDestination.ARCHITECTURE,
+                testTag = "nav_architecture",
+                onClick = { onNavigate(AgniDestination.ARCHITECTURE) }
             )
             SidebarNavItem(
                 icon = Icons.Rounded.Psychology,

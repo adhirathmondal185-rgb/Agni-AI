@@ -17,4 +17,8 @@
     <string name="cd_copy_message">Copy message</string>
     <string name="cd_agni_emblem">Agni AI emblem</string>
     <string name="cd_hero_banner">Agni AI neural flame artwork</string>
+    <string name="nav_architecture">System Architecture</string>
+    <string name="architecture_title">AGNI AI Architecture</string>
+    <string name="architecture_subtitle">End-to-end request &amp; model routing flowchart</string>
+    <string name="cd_architecture_back">Back to AI Chat</string>
 </resources>

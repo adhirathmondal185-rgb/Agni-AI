@@ -46,9 +46,32 @@ private const val STOP_TIMEOUT_MS = 5_000L
 enum class AgniDestination {
     CHAT,
     HUB,
+    ARCHITECTURE,
     MEMORY,
     SETTINGS
 }
+
+enum class PipelineNodeId {
+    USER_QUESTION,
+    AGNI_CLIENT,
+    AUTHENTICATION,
+    FASTAPI_BACKEND,
+    REQUEST_VALIDATION,
+    MODEL_ROUTER,
+    OPEN_SOURCE_AI,
+    AGNI_FINE_TUNED,
+    RESPONSE_PROCESSING,
+    SAFETY_CHECKS,
+    SAVE_CHAT_HISTORY,
+    RETURN_ANSWER
+}
+
+data class PipelineTraceState(
+    val completedNodes: Set<PipelineNodeId> = emptySet(),
+    val activeNode: PipelineNodeId? = null,
+    val lastModelName: String? = null,
+    val lastLatencyMs: Long? = null
+)
 
 data class ChatComposerState(
     val activeChatId: String? = null,
@@ -82,6 +105,9 @@ class AgniViewModel(
 
     private val _composer = MutableStateFlow(ChatComposerState())
     val composer: StateFlow<ChatComposerState> = _composer.asStateFlow()
+
+    private val _pipelineTrace = MutableStateFlow(PipelineTraceState())
+    val pipelineTrace: StateFlow<PipelineTraceState> = _pipelineTrace.asStateFlow()
 
     private val _activeChatId = MutableStateFlow<String?>(null)
     private var activeGenerationJob: Job? = null
@@ -339,7 +365,30 @@ class AgniViewModel(
         }
 
         activeGenerationJob = viewModelScope.launch {
+            val startedAtMs = System.currentTimeMillis()
+            val selectedModelDisplay = modelCatalog
+                .firstOrNull { it.modelKey == state.selectedModelKey }
+                ?.displayName ?: state.selectedModelKey
+
+            fun recordStage(completed: Set<PipelineNodeId>, active: PipelineNodeId?, latencyMs: Long? = null) {
+                _pipelineTrace.value = PipelineTraceState(
+                    completedNodes = completed,
+                    activeNode = active,
+                    lastModelName = selectedModelDisplay,
+                    lastLatencyMs = latencyMs
+                )
+            }
+
             try {
+                // Stage A -> B -> C -> E: User question, Android client, Auth verified, Request Validation
+                val validatedNodes = mutableSetOf(
+                    PipelineNodeId.USER_QUESTION,
+                    PipelineNodeId.AGNI_CLIENT,
+                    PipelineNodeId.AUTHENTICATION,
+                    PipelineNodeId.REQUEST_VALIDATION
+                )
+                recordStage(completed = validatedNodes.toSet(), active = PipelineNodeId.MODEL_ROUTER)
+
                 // 1. Ensure a chat document exists BEFORE writing messages (enforced by firestore.rules exists())
                 val chatId = _activeChatId.value ?: run {
                     val autoTitle = effectiveDisplayText
@@ -369,6 +418,15 @@ class AgniViewModel(
                     attachmentMimeType = attachment?.mimeType
                 ).getOrThrow()
 
+                // Stage F -> H (or G): Model Router dispatching to active model
+                validatedNodes.add(PipelineNodeId.MODEL_ROUTER)
+                val targetModelBranch = if (state.selectedModelKey == "external-opensource-peft") {
+                    PipelineNodeId.OPEN_SOURCE_AI
+                } else {
+                    PipelineNodeId.AGNI_FINE_TUNED
+                }
+                recordStage(completed = validatedNodes.toSet(), active = targetModelBranch)
+
                 // 3. Stream live AI response via replaceable AiModelRouter
                 var finalResponseText = ""
                 var finalCitations: List<String> = emptyList()
@@ -389,6 +447,8 @@ class AgniViewModel(
                 ).collect { event ->
                     when (event) {
                         is AiStreamEvent.Chunk -> {
+                            validatedNodes.add(targetModelBranch)
+                            recordStage(completed = validatedNodes.toSet(), active = PipelineNodeId.RESPONSE_PROCESSING)
                             _composer.update {
                                 it.copy(
                                     streamingText = event.accumulatedText,
@@ -402,6 +462,12 @@ class AgniViewModel(
                         }
                     }
                 }
+
+                // Stage I -> J: Response Processing + Safety & Quality Checks
+                validatedNodes.add(targetModelBranch)
+                validatedNodes.add(PipelineNodeId.RESPONSE_PROCESSING)
+                validatedNodes.add(PipelineNodeId.SAFETY_CHECKS)
+                recordStage(completed = validatedNodes.toSet(), active = PipelineNodeId.SAVE_CHAT_HISTORY)
 
                 // 4. Persist assistant message
                 repository.addMessage(
@@ -445,6 +511,15 @@ class AgniViewModel(
                     tokensDelta = estTokens
                 )
 
+                // Stage K -> L: Chat History saved & Answer returned to User
+                validatedNodes.add(PipelineNodeId.SAVE_CHAT_HISTORY)
+                validatedNodes.add(PipelineNodeId.RETURN_ANSWER)
+                recordStage(
+                    completed = validatedNodes.toSet(),
+                    active = null,
+                    latencyMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(1L)
+                )
+
                 _composer.update {
                     it.copy(
                         isStreaming = false,
@@ -453,10 +528,12 @@ class AgniViewModel(
                     )
                 }
             } catch (e: CancellationException) {
+                _pipelineTrace.update { it.copy(activeNode = null) }
                 _composer.update { it.copy(isStreaming = false) }
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error during AI message exchange", e)
+                _pipelineTrace.update { it.copy(activeNode = null) }
                 _composer.update {
                     it.copy(
                         isStreaming = false,

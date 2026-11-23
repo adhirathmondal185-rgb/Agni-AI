@@ -43,6 +43,7 @@ import com.example.auth.signOut
 import com.example.data.AgniRepository
 import com.example.firebase.configureAppCheck
 import com.example.ui.components.AgniSidebarContent
+import com.example.ui.screens.ArchitectureFlowScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatWorkspaceScreen
 import com.example.ui.screens.MemoryScreen
@@ -165,6 +166,7 @@ private fun AgniAuthenticatedShell(
     val memoriesState by viewModel.memoriesState.collectAsStateWithLifecycle()
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
     val usage by viewModel.usage.collectAsStateWithLifecycle()
+    val pipelineTrace by viewModel.pipelineTrace.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(composer.statusSnackbar) {
@@ -225,6 +227,13 @@ private fun AgniAuthenticatedShell(
                                     onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
                                     onLaunchMode = { mode -> viewModel.startNewChat(mode) },
                                     onDeleteFileRecord = { viewModel.deleteFileRecord(it) }
+                                )
+                            }
+                            AgniDestination.ARCHITECTURE -> {
+                                ArchitectureFlowScreen(
+                                    pipelineTrace = pipelineTrace,
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onTryInChat = { viewModel.navigateTo(AgniDestination.CHAT) }
                                 )
                             }
                             AgniDestination.MEMORY -> {
