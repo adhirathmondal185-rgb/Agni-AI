@@ -13,25 +13,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Configure Android SDK & accept licenses
+      - name: Install Android SDK 36.1 & accept licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "Using Android SDK at: $SDK_DIR"
           echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
-          SDKMANAGER="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
+          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
           if [ -n "$SDKMANAGER" ]; then
-            echo "Found sdkmanager at: $SDKMANAGER"
-            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-36" "build-tools;36.0.0" > /dev/null 2>&1 || true
-            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-36.1" > /dev/null 2>&1 || true
-          else
-            echo "sdkmanager not found; relying on pre-accepted licenses"
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "cmdline-tools;latest" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
+            if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+              SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+            fi
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-36.1" || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "build-tools;36.1.0" || true
+            ls -la "$SDK_DIR/platforms" || true
           fi
 
       - name: Set up Gradle 9.3.1
@@ -46,7 +52,7 @@ jobs:
             tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
           fi
           if [ ! -f debug.keystore ]; then
-            echo "debug.keystore.base64 not found; generating fallback debug.keystore..."
+            echo "Generating fallback debug.keystore..."
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -storepass android \
@@ -60,28 +66,28 @@ jobs:
           if [ ! -f .env ]; then
             touch .env
           fi
-          ls -la debug.keystore app/google-services.json .env || true
 
       - name: Build Debug APK
         run: |
           set -o pipefail
-          gradle :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 --stacktrace 2>&1 | tee build.log
+          gradle :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 --console=plain 2>&1 | tee build.log
 
-      - name: Publish failure summary if build failed
+      - name: Report exact error in Annotations
         if: failure()
         run: |
-          {
-            echo "## Build Debug APK Error Summary"
-            echo '```text'
-            if [ -f build.log ]; then
-              grep -n -E "FAILURE:|What went wrong:|Caused by:|e: file:|> Could not|> Keystore|> Execution failed" build.log | tail -n 35 || true
-              echo "--- Last 40 lines of build.log ---"
-              tail -n 40 build.log
-            else
-              echo "build.log was not created."
+          if [ -f build.log ]; then
+            ERR_LINES="$(grep -E "FAILURE:|What went wrong:|Caused by:|> Could not|> Keystore|> Execution failed|e: file:" build.log | head -n 12 | tr '\n' ' ' | cut -c1-900)"
+            if [ -z "$ERR_LINES" ]; then
+              ERR_LINES="$(tail -n 15 build.log | tr '\n' ' ' | cut -c1-900)"
             fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Exact Gradle Error::$ERR_LINES"
+            {
+              echo "## Exact Gradle Error"
+              echo '```text'
+              tail -n 60 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Prepare APK file
         run: cp app/build/outputs/apk/debug/app-debug.apk Agni-AI-debug.apk
@@ -92,11 +98,3 @@ jobs:
           name: Agni-AI-APK
           path: Agni-AI-debug.apk
           retention-days: 30
-
-      - name: Publish success summary
-        if: success()
-        run: |
-          {
-            echo "## Agni AI APK Ready!"
-            echo "Scroll down to **Artifacts** and tap **Agni-AI-APK** to download."
-          } >> "$GITHUB_STEP_SUMMARY"
