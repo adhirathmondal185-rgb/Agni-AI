@@ -6,7 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai.AiInferenceRequest
 import com.example.ai.AiModelRouter
 import com.example.ai.AiStreamEvent
+import com.example.ai.CUSTOM_MODEL_KEY
+import com.example.ai.CustomOpenSourceClient
 import com.example.data.AgniRepository
+import com.example.data.CustomEndpointConfig
+import com.example.data.CustomModelConfigStore
 import com.example.model.AgniLanguage
 import com.example.model.AiModelConfig
 import com.example.model.AssistantMode
@@ -73,6 +77,13 @@ data class PipelineTraceState(
     val lastLatencyMs: Long? = null
 )
 
+sealed interface CustomConnectionTestState {
+    data object Idle : CustomConnectionTestState
+    data object Testing : CustomConnectionTestState
+    data class Success(val latencyMs: Long, val preview: String) : CustomConnectionTestState
+    data class Error(val message: String) : CustomConnectionTestState
+}
+
 data class ChatComposerState(
     val activeChatId: String? = null,
     val selectedMode: AssistantMode = AssistantMode.CHAT,
@@ -95,13 +106,27 @@ data class ChatComposerState(
 class AgniViewModel(
     private val repository: AgniRepository,
     private val aiRouter: AiModelRouter,
+    private val customModelStore: CustomModelConfigStore,
     val currentUserId: String,
     initialDisplayName: String,
     initialEmail: String?,
     initialPhotoUrl: String?
 ) : ViewModel() {
 
-    val modelCatalog: List<ModelOption> = aiRouter.catalog()
+    private val baseCatalog: List<ModelOption> = aiRouter.catalog()
+
+    val customEndpointConfig: StateFlow<CustomEndpointConfig> = customModelStore.config
+
+    private val _customTestState = MutableStateFlow<CustomConnectionTestState>(CustomConnectionTestState.Idle)
+    val customTestState: StateFlow<CustomConnectionTestState> = _customTestState.asStateFlow()
+
+    val modelCatalog: StateFlow<List<ModelOption>> = customEndpointConfig
+        .map { cfg -> buildDynamicCatalog(cfg) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = buildDynamicCatalog(customModelStore.config.value)
+        )
 
     private val _composer = MutableStateFlow(ChatComposerState())
     val composer: StateFlow<ChatComposerState> = _composer.asStateFlow()
@@ -111,6 +136,30 @@ class AgniViewModel(
 
     private val _activeChatId = MutableStateFlow<String?>(null)
     private var activeGenerationJob: Job? = null
+
+    private fun buildDynamicCatalog(cfg: CustomEndpointConfig): List<ModelOption> {
+        return baseCatalog.map { option ->
+            if (option.modelKey != CUSTOM_MODEL_KEY) {
+                option
+            } else if (cfg.isConfigured) {
+                option.copy(
+                    displayName = cfg.displayLabel,
+                    provider = "Custom FastAPI · ${cfg.modelName}",
+                    badge = "CUSTOM LIVE",
+                    description = "Connected to your self-hosted FastAPI / AGNI Fine-Tuned endpoint (${cfg.endpointUrl}).",
+                    isLiveReady = true
+                )
+            } else {
+                option.copy(
+                    displayName = "Custom AGNI / Open-Source Model",
+                    provider = "External FastAPI / PyTorch Backend",
+                    badge = "SETUP API",
+                    description = "Tap to configure your own AGNI Fine-Tuned LoRA, FastAPI, vLLM, or Open-Source HTTPS endpoint.",
+                    isLiveReady = false
+                )
+            }
+        }
+    }
 
     val userProfile: StateFlow<UserProfile?> = repository.observeUserProfile(currentUserId)
         .catch { error ->
@@ -171,7 +220,7 @@ class AgniViewModel(
                 displayName = initialDisplayName,
                 email = initialEmail,
                 photoUrl = initialPhotoUrl,
-                defaultCatalog = modelCatalog
+                defaultCatalog = baseCatalog
             )
             initResult.onSuccess { isNewAccount ->
                 if (isNewAccount) {
@@ -247,11 +296,12 @@ class AgniViewModel(
     }
 
     fun selectModel(modelKey: String) {
-        val model = modelCatalog.firstOrNull { it.modelKey == modelKey } ?: return
+        val model = modelCatalog.value.firstOrNull { it.modelKey == modelKey } ?: return
         if (!model.isLiveReady) {
             _composer.update {
                 it.copy(
-                    statusSnackbar = "${model.displayName} requires an external FastAPI/PyTorch server. Using live Firebase AI Logic models."
+                    currentDestination = AgniDestination.SETTINGS,
+                    statusSnackbar = "Add your Custom AGNI / FastAPI HTTPS URL in Settings to activate your own model."
                 )
             }
             return
@@ -259,6 +309,86 @@ class AgniViewModel(
         _composer.update { it.copy(selectedModelKey = modelKey, errorBanner = null) }
         viewModelScope.launch {
             repository.updateSettings(defaultModelId = modelKey)
+        }
+    }
+
+    fun saveAndActivateCustomEndpoint(
+        displayLabel: String,
+        endpointUrl: String,
+        modelName: String,
+        apiKey: String
+    ) {
+        val result = customModelStore.save(
+            CustomEndpointConfig(
+                displayLabel = displayLabel,
+                endpointUrl = endpointUrl,
+                modelName = modelName,
+                apiKey = apiKey
+            )
+        )
+        result.onSuccess { saved ->
+            _customTestState.value = CustomConnectionTestState.Idle
+            _composer.update {
+                it.copy(
+                    selectedModelKey = CUSTOM_MODEL_KEY,
+                    errorBanner = null,
+                    statusSnackbar = "Saved & activated ${saved.displayLabel} (${saved.modelName})."
+                )
+            }
+            viewModelScope.launch {
+                repository.updateSettings(defaultModelId = CUSTOM_MODEL_KEY)
+            }
+        }.onFailure { err ->
+            _customTestState.value = CustomConnectionTestState.Error(
+                err.localizedMessage ?: "Invalid HTTPS endpoint configuration."
+            )
+        }
+    }
+
+    fun testCustomEndpoint(
+        displayLabel: String,
+        endpointUrl: String,
+        modelName: String,
+        apiKey: String
+    ) {
+        viewModelScope.launch {
+            _customTestState.value = CustomConnectionTestState.Testing
+            val candidate = CustomEndpointConfig(
+                displayLabel = displayLabel.ifBlank { "Agni Custom Model" },
+                endpointUrl = endpointUrl,
+                modelName = modelName.ifBlank { "agni-ai-v1" },
+                apiKey = apiKey
+            )
+            CustomOpenSourceClient.testConnection(candidate)
+                .onSuccess { res ->
+                    _customTestState.value = CustomConnectionTestState.Success(
+                        latencyMs = res.latencyMs,
+                        preview = res.samplePreview
+                    )
+                }
+                .onFailure { err ->
+                    _customTestState.value = CustomConnectionTestState.Error(
+                        err.localizedMessage ?: "Could not connect to custom server."
+                    )
+                }
+        }
+    }
+
+    fun clearCustomEndpoint() {
+        customModelStore.clear()
+        _customTestState.value = CustomConnectionTestState.Idle
+        if (_composer.value.selectedModelKey == CUSTOM_MODEL_KEY) {
+            _composer.update {
+                it.copy(
+                    selectedModelKey = "gemini-3.8-flash",
+                    statusSnackbar = "Custom endpoint cleared. Switched back to Agni Flash."
+                )
+            }
+            viewModelScope.launch {
+                repository.updateSettings(defaultModelId = "gemini-3.8-flash")
+            }
+        } else {
+            _composer.update { it.copy(statusSnackbar = "Custom endpoint cleared.") }
         }
     }
 
@@ -366,7 +496,8 @@ class AgniViewModel(
 
         activeGenerationJob = viewModelScope.launch {
             val startedAtMs = System.currentTimeMillis()
-            val selectedModelDisplay = modelCatalog
+            val isCustomRoute = state.selectedModelKey == CUSTOM_MODEL_KEY
+            val selectedModelDisplay = modelCatalog.value
                 .firstOrNull { it.modelKey == state.selectedModelKey }
                 ?.displayName ?: state.selectedModelKey
 
@@ -380,13 +511,16 @@ class AgniViewModel(
             }
 
             try {
-                // Stage A -> B -> C -> E: User question, Android client, Auth verified, Request Validation
+                // Stage A -> B -> C (-> D if FastAPI custom backend) -> E
                 val validatedNodes = mutableSetOf(
                     PipelineNodeId.USER_QUESTION,
                     PipelineNodeId.AGNI_CLIENT,
                     PipelineNodeId.AUTHENTICATION,
                     PipelineNodeId.REQUEST_VALIDATION
                 )
+                if (isCustomRoute) {
+                    validatedNodes.add(PipelineNodeId.FASTAPI_BACKEND)
+                }
                 recordStage(completed = validatedNodes.toSet(), active = PipelineNodeId.MODEL_ROUTER)
 
                 // 1. Ensure a chat document exists BEFORE writing messages (enforced by firestore.rules exists())
@@ -420,7 +554,7 @@ class AgniViewModel(
 
                 // Stage F -> H (or G): Model Router dispatching to active model
                 validatedNodes.add(PipelineNodeId.MODEL_ROUTER)
-                val targetModelBranch = if (state.selectedModelKey == "external-opensource-peft") {
+                val targetModelBranch = if (isCustomRoute) {
                     PipelineNodeId.OPEN_SOURCE_AI
                 } else {
                     PipelineNodeId.AGNI_FINE_TUNED
@@ -442,7 +576,8 @@ class AgniViewModel(
                         history = currentMessages,
                         activeMemories = activeMemories,
                         attachment = attachment,
-                        webResearchEnabled = settings.value.webResearchEnabled
+                        webResearchEnabled = settings.value.webResearchEnabled,
+                        customEndpoint = customEndpointConfig.value
                     )
                 ).collect { event ->
                     when (event) {

@@ -25,13 +25,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,9 +64,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.CustomEndpointConfig
 import com.example.model.AgniLanguage
 import com.example.model.AssistantMode
 import com.example.model.FeedbackCategory
@@ -75,6 +83,7 @@ import com.example.model.UserFeedback
 import com.example.model.UserSettings
 import com.example.ui.theme.AgniAmber
 import com.example.ui.theme.EmeraldSuccess
+import com.example.viewmodel.CustomConnectionTestState
 
 @Composable
 fun WorkspaceHubScreen(
@@ -455,11 +464,16 @@ fun SettingsAndFeedbackScreen(
     userEmail: String?,
     settings: UserSettings,
     modelCatalog: List<ModelOption>,
+    customEndpointConfig: CustomEndpointConfig,
+    customTestState: CustomConnectionTestState,
     feedbackState: UiState<List<UserFeedback>>,
     onBack: () -> Unit,
     onUpdateTheme: (String) -> Unit,
     onSelectLanguage: (AgniLanguage) -> Unit,
     onSelectModel: (String) -> Unit,
+    onSaveCustomEndpoint: (String, String, String, String) -> Unit,
+    onTestCustomEndpoint: (String, String, String, String) -> Unit,
+    onClearCustomEndpoint: () -> Unit,
     onToggleVoiceAutoSend: (Boolean) -> Unit,
     onToggleMemory: (Boolean) -> Unit,
     onToggleWebResearch: (Boolean) -> Unit,
@@ -476,6 +490,12 @@ fun SettingsAndFeedbackScreen(
     var feedbackComment by remember { mutableStateOf("") }
     var confirmClearChats by remember { mutableStateOf(false) }
     var confirmClearMemory by remember { mutableStateOf(false) }
+
+    var customLabel by remember(customEndpointConfig.displayLabel) { mutableStateOf(customEndpointConfig.displayLabel) }
+    var customUrl by remember(customEndpointConfig.endpointUrl) { mutableStateOf(customEndpointConfig.endpointUrl) }
+    var customModelName by remember(customEndpointConfig.modelName) { mutableStateOf(customEndpointConfig.modelName) }
+    var customApiKey by remember(customEndpointConfig.apiKey) { mutableStateOf(customEndpointConfig.apiKey) }
+    var showApiKey by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         SubScreenTopBar(title = "Settings, Models & Feedback", onBack = onBack)
@@ -605,11 +625,215 @@ fun SettingsAndFeedbackScreen(
                 }
             }
 
+            // Custom AGNI Fine-Tuned / FastAPI Open-Source Endpoint Configurator
+            item {
+                SectionCard(title = stringResource(R.string.custom_model_section_title)) {
+                    Text(
+                        text = stringResource(R.string.custom_model_section_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (customEndpointConfig.isConfigured) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = EmeraldSuccess.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, EmeraldSuccess.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CloudDone,
+                                    contentDescription = null,
+                                    tint = EmeraldSuccess,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Connected: ${customEndpointConfig.displayLabel} (${customEndpointConfig.modelName})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = EmeraldSuccess,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = customLabel,
+                        onValueChange = { if (it.length <= 48) customLabel = it },
+                        label = { Text("Model Display Name") },
+                        placeholder = { Text("Agni Fine-Tuned v1") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_model_label_input")
+                    )
+                    OutlinedTextField(
+                        value = customUrl,
+                        onValueChange = { customUrl = it },
+                        label = { Text("HTTPS Endpoint URL (FastAPI / OpenAI-Compatible)") },
+                        placeholder = { Text("https://your-tunnel.trycloudflare.com/v1/chat/completions") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_model_url_input")
+                    )
+                    OutlinedTextField(
+                        value = customModelName,
+                        onValueChange = { if (it.length <= 128) customModelName = it },
+                        label = { Text("Model ID") },
+                        placeholder = { Text("agni-ai-v1") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_model_id_input")
+                    )
+                    OutlinedTextField(
+                        value = customApiKey,
+                        onValueChange = { customApiKey = it },
+                        label = { Text("Bearer Token / API Key (Optional, stays on device)") },
+                        placeholder = { Text("Leave blank if your FastAPI server has no auth") },
+                        singleLine = true,
+                        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showApiKey = !showApiKey }) {
+                                Icon(
+                                    imageVector = if (showApiKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = if (showApiKey) "Hide token" else "Show token"
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_model_key_input")
+                    )
+
+                    when (customTestState) {
+                        is CustomConnectionTestState.Idle -> Unit
+                        is CustomConnectionTestState.Testing -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = "Testing HTTPS connection to your custom model...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        is CustomConnectionTestState.Success -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = EmeraldSuccess.copy(alpha = 0.14f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CheckCircle,
+                                        contentDescription = null,
+                                        tint = EmeraldSuccess,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Connected in ${customTestState.latencyMs} ms",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = EmeraldSuccess
+                                        )
+                                        Text(
+                                            text = customTestState.preview,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        is CustomConnectionTestState.Error -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = customTestState.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                onTestCustomEndpoint(customLabel, customUrl, customModelName, customApiKey)
+                            },
+                            enabled = customUrl.isNotBlank() && customTestState !is CustomConnectionTestState.Testing,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("custom_model_test_button")
+                        ) {
+                            Text("Test")
+                        }
+                        Button(
+                            onClick = {
+                                onSaveCustomEndpoint(customLabel, customUrl, customModelName, customApiKey)
+                            },
+                            enabled = customUrl.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .testTag("custom_model_save_button")
+                        ) {
+                            Text("Save & Use")
+                        }
+                    }
+                    if (customEndpointConfig.isConfigured) {
+                        TextButton(
+                            onClick = onClearCustomEndpoint,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .testTag("custom_model_clear_button")
+                        ) {
+                            Text("Disconnect Custom Endpoint", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+
             // Replaceable Model Router Status
             item {
                 SectionCard(title = "Modular Model Router") {
                     Text(
-                        text = "Active cloud inference routes through Firebase AI Logic with App Check (no client API secrets). Self-hosted open-source/PEFT adapters require an external backend endpoint.",
+                        text = "Switch seamlessly between Firebase AI Logic models and your own self-hosted AGNI Fine-Tuned / FastAPI endpoint.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -640,7 +864,7 @@ fun SettingsAndFeedbackScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(model.displayName, style = MaterialTheme.typography.titleSmall)
                                     Text(
-                                        text = "${model.provider} · ${if (model.isLiveReady) "Live" else "Needs External API"}",
+                                        text = "${model.provider} · ${if (model.isLiveReady) "Live" else "Configure above"}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (model.isLiveReady) EmeraldSuccess else AgniAmber
                                     )

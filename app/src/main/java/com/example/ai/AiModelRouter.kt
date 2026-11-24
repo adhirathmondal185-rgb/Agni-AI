@@ -1,6 +1,7 @@
 package com.example.ai
 
 import android.util.Log
+import com.example.data.CustomEndpointConfig
 import com.example.model.AgniLanguage
 import com.example.model.AssistantMode
 import com.example.model.ChatMessage
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withTimeout
 
 private const val TAG = "AgniAiRouter"
 private const val INFERENCE_TIMEOUT_MS = 60_000L
+const val CUSTOM_MODEL_KEY = "external-opensource-peft"
 
 data class AiInferenceRequest(
     val prompt: String,
@@ -30,7 +32,8 @@ data class AiInferenceRequest(
     val history: List<ChatMessage> = emptyList(),
     val activeMemories: List<String> = emptyList(),
     val attachment: PendingAttachment? = null,
-    val webResearchEnabled: Boolean = true
+    val webResearchEnabled: Boolean = true,
+    val customEndpoint: CustomEndpointConfig? = null
 )
 
 sealed interface AiStreamEvent {
@@ -100,14 +103,49 @@ class FirebaseAiModelRouter : AiModelRouter {
     override fun catalog(): List<ModelOption> = modelCatalog
 
     override fun streamResponse(request: AiInferenceRequest): Flow<AiStreamEvent> = flow {
-        val selected = modelCatalog.firstOrNull { it.modelKey == request.modelKey }
-        if (selected != null && !selected.isLiveReady) {
-            throw IllegalStateException(
-                "${selected.displayName} requires an external FastAPI/PyTorch inference endpoint. " +
-                    "Switch to Agni Flash (Gemini 3.8) or Agni Lite for live AI responses."
-            )
+        if (request.modelKey == CUSTOM_MODEL_KEY) {
+            val cfg = request.customEndpoint
+            if (cfg == null || !cfg.isConfigured) {
+                throw IllegalStateException(
+                    "Custom AGNI Model is not configured yet. Open Settings -> Custom AGNI Model to add your FastAPI or Open-Source HTTPS endpoint URL."
+                )
+            }
+            val systemInstructionText = buildSystemInstruction(request)
+            val effectivePrompt = request.prompt.ifBlank {
+                when {
+                    request.attachment?.isImage == true -> "The user attached an image (${request.attachment.fileName}), which this text-only custom endpoint cannot inspect directly. Explain politely how to switch to Agni Flash for vision."
+                    request.attachment?.isPdf == true -> "The user attached a PDF (${request.attachment.fileName}), which this text-only custom endpoint cannot inspect directly. Explain politely how to switch to Agni Flash for PDF analysis."
+                    else -> "Hello"
+                }
+            }
+            val reply = try {
+                withTimeout(INFERENCE_TIMEOUT_MS) {
+                    CustomOpenSourceClient.generateCompletion(
+                        config = cfg,
+                        systemInstruction = systemInstructionText,
+                        history = request.history,
+                        userPrompt = effectivePrompt
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                Log.e(TAG, "Custom endpoint timed out after ${INFERENCE_TIMEOUT_MS}ms", e)
+                throw IllegalStateException("Custom model server timed out after 60 seconds. Check that your Colab/FastAPI server is running.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Custom endpoint inference failed", e)
+                throw e
+            }
+            val cleanReply = reply.trim()
+            if (cleanReply.isBlank()) {
+                throw IllegalStateException("Your custom AGNI model server returned an empty response.")
+            }
+            emit(AiStreamEvent.Chunk(cleanReply, emptyList()))
+            emit(AiStreamEvent.Complete(cleanReply, emptyList()))
+            return@flow
         }
 
+        val selected = modelCatalog.firstOrNull { it.modelKey == request.modelKey }
         val resolvedModelKey = if (selected != null && selected.isLiveReady) {
             selected.modelKey
         } else {

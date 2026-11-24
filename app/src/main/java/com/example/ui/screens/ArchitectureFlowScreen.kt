@@ -196,13 +196,23 @@ private val AgniFlowNodes: Map<PipelineNodeId, FlowNodeSpec> = mapOf(
 @Composable
 fun ArchitectureFlowScreen(
     pipelineTrace: PipelineTraceState,
+    isCustomEndpointLive: Boolean = false,
     onBack: () -> Unit,
     onTryInChat: () -> Unit
 ) {
     BackHandler { onBack() }
 
     var selectedNode by remember { mutableStateOf(PipelineNodeId.MODEL_ROUTER) }
-    val selectedSpec = AgniFlowNodes.getValue(selectedNode)
+    val resolvedNodes = remember(isCustomEndpointLive) {
+        AgniFlowNodes.mapValues { (id, spec) ->
+            if (isCustomEndpointLive && (id == PipelineNodeId.FASTAPI_BACKEND || id == PipelineNodeId.OPEN_SOURCE_AI)) {
+                spec.copy(isLiveInAndroid = true)
+            } else {
+                spec
+            }
+        }
+    }
+    val selectedSpec = resolvedNodes.getValue(selectedNode)
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -312,7 +322,7 @@ fun ArchitectureFlowScreen(
                     )
 
                     topChain.forEachIndexed { index, nodeId ->
-                        val spec = AgniFlowNodes.getValue(nodeId)
+                        val spec = resolvedNodes.getValue(nodeId)
                         FlowNodeCard(
                             spec = spec,
                             selected = selectedNode == nodeId,
@@ -339,8 +349,8 @@ fun ArchitectureFlowScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        val openSourceSpec = AgniFlowNodes.getValue(PipelineNodeId.OPEN_SOURCE_AI)
-                        val fineTunedSpec = AgniFlowNodes.getValue(PipelineNodeId.AGNI_FINE_TUNED)
+                        val openSourceSpec = resolvedNodes.getValue(PipelineNodeId.OPEN_SOURCE_AI)
+                        val fineTunedSpec = resolvedNodes.getValue(PipelineNodeId.AGNI_FINE_TUNED)
 
                         BranchNodeCard(
                             spec = openSourceSpec,
@@ -374,7 +384,7 @@ fun ArchitectureFlowScreen(
                         PipelineNodeId.RETURN_ANSWER
                     )
                     bottomChain.forEachIndexed { index, nodeId ->
-                        val spec = AgniFlowNodes.getValue(nodeId)
+                        val spec = resolvedNodes.getValue(nodeId)
                         FlowNodeCard(
                             spec = spec,
                             selected = selectedNode == nodeId,

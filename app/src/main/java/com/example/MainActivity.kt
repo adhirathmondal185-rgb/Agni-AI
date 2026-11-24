@@ -41,6 +41,7 @@ import com.example.ai.FirebaseAiModelRouter
 import com.example.auth.authStateFlow
 import com.example.auth.signOut
 import com.example.data.AgniRepository
+import com.example.data.CustomModelConfigStore
 import com.example.firebase.configureAppCheck
 import com.example.ui.components.AgniSidebarContent
 import com.example.ui.screens.ArchitectureFlowScreen
@@ -149,6 +150,7 @@ private fun AgniAuthenticatedShell(
                 AgniViewModel(
                     repository = AgniRepository(db),
                     aiRouter = FirebaseAiModelRouter(),
+                    customModelStore = CustomModelConfigStore(app, user.uid),
                     currentUserId = user.uid,
                     initialDisplayName = user.displayName ?: "Agni Explorer",
                     initialEmail = user.email,
@@ -167,6 +169,9 @@ private fun AgniAuthenticatedShell(
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
     val usage by viewModel.usage.collectAsStateWithLifecycle()
     val pipelineTrace by viewModel.pipelineTrace.collectAsStateWithLifecycle()
+    val modelCatalog by viewModel.modelCatalog.collectAsStateWithLifecycle()
+    val customEndpointConfig by viewModel.customEndpointConfig.collectAsStateWithLifecycle()
+    val customTestState by viewModel.customTestState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(composer.statusSnackbar) {
@@ -199,7 +204,7 @@ private fun AgniAuthenticatedShell(
                                 ChatWorkspaceScreen(
                                     composer = composer,
                                     messagesState = messagesState,
-                                    modelCatalog = viewModel.modelCatalog,
+                                    modelCatalog = modelCatalog,
                                     showDrawerButton = showDrawerButton,
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNewChat = { viewModel.startNewChat() },
@@ -232,6 +237,7 @@ private fun AgniAuthenticatedShell(
                             AgniDestination.ARCHITECTURE -> {
                                 ArchitectureFlowScreen(
                                     pipelineTrace = pipelineTrace,
+                                    isCustomEndpointLive = customEndpointConfig.isConfigured,
                                     onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
                                     onTryInChat = { viewModel.navigateTo(AgniDestination.CHAT) }
                                 )
@@ -252,12 +258,21 @@ private fun AgniAuthenticatedShell(
                                     userDisplayName = displayName,
                                     userEmail = user.email,
                                     settings = settings,
-                                    modelCatalog = viewModel.modelCatalog,
+                                    modelCatalog = modelCatalog,
+                                    customEndpointConfig = customEndpointConfig,
+                                    customTestState = customTestState,
                                     feedbackState = feedbackState,
                                     onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
                                     onUpdateTheme = { viewModel.updateThemeMode(it) },
                                     onSelectLanguage = { viewModel.selectLanguage(it) },
                                     onSelectModel = { viewModel.selectModel(it) },
+                                    onSaveCustomEndpoint = { label, url, modelId, token ->
+                                        viewModel.saveAndActivateCustomEndpoint(label, url, modelId, token)
+                                    },
+                                    onTestCustomEndpoint = { label, url, modelId, token ->
+                                        viewModel.testCustomEndpoint(label, url, modelId, token)
+                                    },
+                                    onClearCustomEndpoint = { viewModel.clearCustomEndpoint() },
                                     onToggleVoiceAutoSend = { viewModel.updateVoiceAutoSend(it) },
                                     onToggleMemory = { viewModel.updateMemoryEnabled(it) },
                                     onToggleWebResearch = { viewModel.updateWebResearchEnabled(it) },
