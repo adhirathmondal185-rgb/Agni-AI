@@ -1,21 +1,16 @@
 """
-AGNI AI — FastAPI Custom Model Inference Backend
-================================================
-Matches the AGNI AI architecture pipeline:
-  FastAPI Backend -> Request Validation -> Model Router ->
-  (Open Source AI / AGNI Fine-Tuned LoRA) -> Response Processing -> Safety Checks
+AGNI AI — Permanent FastAPI Inference Backend (GPU + Free CPU Compatible)
+=========================================================================
+Works both on:
+  1. Hugging Face Spaces (Free CPU Basic, 16 GB RAM, Port 7860) — Permanent HTTPS URL
+  2. Google Colab / Cloud GPU (CUDA T4/A10G, 4-bit QLoRA)
 
-Install dependencies (Colab or GPU VM):
-    pip install -q fastapi uvicorn pydantic transformers peft bitsandbytes accelerate torch
-
-Run server:
-    export AGNI_API_KEY="choose-your-own-secret-token"
-    uvicorn fastapi_server:app --host 0.0.0.0 --port 8000
-
-Expose free HTTPS URL from Google Colab (no account needed):
-    !wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-    !chmod +x cloudflared-linux-amd64
-    !./cloudflared-linux-amd64 tunnel --url http://localhost:8000
+Environment Variables (never hardcode secrets):
+  - AGNI_BASE_MODEL  : Base open-source model (default: Qwen/Qwen2.5-1.5B-Instruct)
+  - AGNI_LORA_PATH   : Local LoRA folder (default: ./agni-lora-adapter)
+  - AGNI_LORA_REPO   : Optional Hugging Face Hub LoRA repo ID (e.g. username/agni-ai-v1-lora)
+  - AGNI_API_KEY     : Optional Bearer token to protect /v1/chat/completions
+  - HF_TOKEN         : Optional Hugging Face token if your LoRA repo is private
 """
 
 import hmac
@@ -27,13 +22,15 @@ import torch
 from fastapi import Depends, FastAPI, Header, HTTPException
 from peft import PeftModel
 from pydantic import BaseModel, Field
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-BASE_MODEL_ID = os.getenv("AGNI_BASE_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
-LORA_ADAPTER_PATH = os.getenv("AGNI_LORA_PATH", "./agni-lora-adapter")
+BASE_MODEL_ID = os.getenv("AGNI_BASE_MODEL", "Qwen/Qwen2.5-1.5B-Instruct").strip()
+LORA_ADAPTER_PATH = os.getenv("AGNI_LORA_PATH", "./agni-lora-adapter").strip()
+LORA_ADAPTER_REPO = os.getenv("AGNI_LORA_REPO", "").strip()
 EXPECTED_API_KEY = os.getenv("AGNI_API_KEY", "").strip()
+HF_TOKEN = os.getenv("HF_TOKEN", "").strip() or None
 
-app = FastAPI(title="AGNI AI FastAPI Backend", version="1.0.0")
+app = FastAPI(title="AGNI AI FastAPI Backend", version="1.1.0")
 
 _tokenizer = None
 _model = None
@@ -49,7 +46,7 @@ class ChatCompletionRequest(BaseModel):
     model: str = Field(default="agni-ai-v1", max_length=128)
     messages: List[ChatTurn] = Field(..., min_length=1, max_length=32)
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
-    max_tokens: int = Field(default=512, ge=16, le=2048)
+    max_tokens: int = Field(default=384, ge=16, le=2048)
     stream: bool = False
 
 
@@ -68,22 +65,53 @@ def load_agni_model():
     if _model is not None:
         return _tokenizer, _model
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=False)
-    base_model = AutoModelForCausalLM.from_pretrained(
+    use_cuda = torch.cuda.is_available()
+    tokenizer = AutoTokenizer.from_pretrained(
         BASE_MODEL_ID,
-        quantization_config=bnb_config,
-        device_map="auto",
         trust_remote_code=False,
+        token=HF_TOKEN,
     )
 
-    if os.path.isdir(LORA_ADAPTER_PATH):
-        model = PeftModel.from_pretrained(base_model, LORA_ADAPTER_PATH)
-        _loaded_model_label = "agni-ai-v1-finetuned"
+    if use_cuda:
+        from transformers import BitsAndBytesConfig
+
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,
+        )
+        base_model = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL_ID,
+            quantization_config=bnb_config,
+            device_map="auto",
+            trust_remote_code=False,
+            token=HF_TOKEN,
+        )
+    else:
+        # CPU-friendly loading for free Hugging Face Spaces (16 GB RAM)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL_ID,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
+            trust_remote_code=False,
+            token=HF_TOKEN,
+        )
+
+    adapter_source = None
+    if LORA_ADAPTER_REPO:
+        adapter_source = LORA_ADAPTER_REPO
+    elif os.path.isdir(LORA_ADAPTER_PATH):
+        adapter_source = LORA_ADAPTER_PATH
+
+    if adapter_source:
+        peft_model = PeftModel.from_pretrained(
+            base_model,
+            adapter_source,
+            token=HF_TOKEN,
+        )
+        # Merge LoRA weights on CPU for faster inference
+        model = peft_model.merge_and_unload() if not use_cuda else peft_model
+        _loaded_model_label = f"agni-ai-v1 ({adapter_source})"
     else:
         model = base_model
         _loaded_model_label = BASE_MODEL_ID
@@ -94,9 +122,23 @@ def load_agni_model():
     return _tokenizer, _model
 
 
+@app.get("/")
+def root():
+    return {
+        "service": "AGNI AI FastAPI Backend",
+        "status": "online",
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "endpoint": "/v1/chat/completions",
+    }
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": _loaded_model_label}
+    return {
+        "status": "ok",
+        "model": _loaded_model_label,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+    }
 
 
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_bearer_token)])
@@ -109,12 +151,15 @@ def create_chat_completion(req: ChatCompletionRequest):
         tokenize=False,
         add_generation_prompt=True,
     )
-    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+    device = next(model.parameters()).device
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
+
+    max_new = min(req.max_tokens, 256 if not torch.cuda.is_available() else req.max_tokens)
 
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
-            max_new_tokens=req.max_tokens,
+            max_new_tokens=max_new,
             temperature=max(req.temperature, 0.05),
             do_sample=req.temperature > 0.0,
             pad_token_id=tokenizer.eos_token_id,
