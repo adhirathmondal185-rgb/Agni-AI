@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
@@ -133,6 +134,13 @@ fun AgniSidebarContent(
                 selected = currentDestination == AgniDestination.CHAT,
                 testTag = "nav_chat",
                 onClick = { onNavigate(AgniDestination.CHAT) }
+            )
+            SidebarNavItem(
+                icon = Icons.Rounded.PhotoLibrary,
+                label = stringResource(R.string.nav_media_studio),
+                selected = currentDestination == AgniDestination.MEDIA_STUDIO,
+                testTag = "nav_media_studio",
+                onClick = { onNavigate(AgniDestination.MEDIA_STUDIO) }
             )
             SidebarNavItem(
                 icon = Icons.Rounded.Dashboard,

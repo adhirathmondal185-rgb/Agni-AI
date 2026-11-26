@@ -1,5 +1,8 @@
 package com.example.viewmodel
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +14,10 @@ import com.example.ai.CustomOpenSourceClient
 import com.example.data.AgniRepository
 import com.example.data.CustomEndpointConfig
 import com.example.data.CustomModelConfigStore
+import com.example.media.AgniImageAiService
+import com.example.media.AgniMediaProcessor
+import com.example.media.ImageSearchClient
+import com.example.media.SearchedImageResult
 import com.example.model.AgniLanguage
 import com.example.model.AiModelConfig
 import com.example.model.AssistantMode
@@ -49,6 +56,7 @@ private const val STOP_TIMEOUT_MS = 5_000L
 
 enum class AgniDestination {
     CHAT,
+    MEDIA_STUDIO,
     HUB,
     ARCHITECTURE,
     MEMORY,
@@ -103,7 +111,24 @@ data class ChatComposerState(
     val currentDestination: AgniDestination = AgniDestination.CHAT
 )
 
+data class MediaStudioState(
+    val searchQuery: String = "",
+    val isSearching: Boolean = false,
+    val searchResults: List<SearchedImageResult> = emptyList(),
+    val searchError: String? = null,
+    val editorSourceBitmap: Bitmap? = null,
+    val editorSourceTitle: String = "Agni Photo",
+    val isAiGenerating: Boolean = false,
+    val videoSlides: List<Bitmap> = emptyList(),
+    val isVideoExporting: Boolean = false,
+    val videoExportProgress: Float = 0f,
+    val lastExportedVideoUri: Uri? = null,
+    val statusMessage: String? = null,
+    val errorMessage: String? = null
+)
+
 class AgniViewModel(
+    private val appContext: Context,
     private val repository: AgniRepository,
     private val aiRouter: AiModelRouter,
     private val customModelStore: CustomModelConfigStore,
@@ -112,6 +137,10 @@ class AgniViewModel(
     initialEmail: String?,
     initialPhotoUrl: String?
 ) : ViewModel() {
+
+    private val imageAiService = AgniImageAiService()
+    private val _mediaStudio = MutableStateFlow(MediaStudioState())
+    val mediaStudio: StateFlow<MediaStudioState> = _mediaStudio.asStateFlow()
 
     private val baseCatalog: List<ModelOption> = aiRouter.catalog()
 
@@ -826,6 +855,347 @@ class AgniViewModel(
                 _composer.update { it.copy(statusSnackbar = "Thank you! Feedback saved.") }
             }.onFailure { err ->
                 _composer.update { it.copy(errorBanner = err.localizedMessage ?: "Failed to submit feedback.") }
+            }
+        }
+    }
+
+    // --- MEDIA STUDIO (IMAGE FINDER, AI IMAGE CREATE/EDIT, PHOTO & VIDEO STUDIO) ---
+
+    fun clearStudioMessage() {
+        _mediaStudio.update { it.copy(statusMessage = null, errorMessage = null) }
+    }
+
+    fun searchStudioImages(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            _mediaStudio.update {
+                it.copy(searchQuery = clean, isSearching = true, searchError = null)
+            }
+            ImageSearchClient.searchImages(clean)
+                .onSuccess { results ->
+                    _mediaStudio.update {
+                        it.copy(isSearching = false, searchResults = results, searchError = null)
+                    }
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(
+                            isSearching = false,
+                            searchError = err.localizedMessage ?: "Could not search images."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun selectSearchResultForEdit(item: SearchedImageResult) {
+        viewModelScope.launch {
+            _mediaStudio.update { it.copy(statusMessage = "Loading photo into editor…", errorMessage = null) }
+            ImageSearchClient.downloadBitmap(item.thumbUrl)
+                .onSuccess { bmp ->
+                    _mediaStudio.update {
+                        it.copy(
+                            editorSourceBitmap = bmp,
+                            editorSourceTitle = item.title,
+                            statusMessage = "Ready to edit: ${item.title}",
+                            errorMessage = null
+                        )
+                    }
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(
+                            statusMessage = null,
+                            errorMessage = err.localizedMessage ?: "Failed to load selected photo."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun downloadSearchResult(item: SearchedImageResult) {
+        viewModelScope.launch {
+            _mediaStudio.update { it.copy(statusMessage = "Saving photo to Gallery…", errorMessage = null) }
+            ImageSearchClient.downloadBitmap(item.fullUrl)
+                .recoverCatching { ImageSearchClient.downloadBitmap(item.thumbUrl).getOrThrow() }
+                .onSuccess { bmp ->
+                    AgniMediaProcessor.saveBitmapToGallery(appContext, bmp, "AgniAI_Found")
+                        .onSuccess {
+                            _mediaStudio.update {
+                                it.copy(statusMessage = "Saved to Gallery (Pictures/AgniAI).", errorMessage = null)
+                            }
+                        }
+                        .onFailure { err ->
+                            _mediaStudio.update {
+                                it.copy(statusMessage = null, errorMessage = err.localizedMessage ?: "Save failed.")
+                            }
+                        }
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(statusMessage = null, errorMessage = err.localizedMessage ?: "Download failed.")
+                    }
+                }
+        }
+    }
+
+    fun addSearchResultToVideo(item: SearchedImageResult) {
+        viewModelScope.launch {
+            _mediaStudio.update { it.copy(statusMessage = "Adding photo to Video Studio…", errorMessage = null) }
+            ImageSearchClient.downloadBitmap(item.thumbUrl, maxDim = 1080)
+                .onSuccess { bmp ->
+                    _mediaStudio.update {
+                        it.copy(
+                            videoSlides = (it.videoSlides + bmp).take(12),
+                            statusMessage = "Added '${item.title}' to Video Studio (${(it.videoSlides.size + 1).coerceAtMost(12)} slides).",
+                            errorMessage = null
+                        )
+                    }
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(statusMessage = null, errorMessage = err.localizedMessage ?: "Failed to add photo.")
+                    }
+                }
+        }
+    }
+
+    fun sendSearchResultToChat(item: SearchedImageResult) {
+        viewModelScope.launch {
+            _mediaStudio.update { it.copy(statusMessage = "Preparing photo for AI Chat…", errorMessage = null) }
+            ImageSearchClient.downloadBitmap(item.thumbUrl, maxDim = 1280)
+                .onSuccess { bmp ->
+                    sendBitmapToChat(bmp, "${item.title.take(30)}.jpg")
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(statusMessage = null, errorMessage = err.localizedMessage ?: "Failed to attach photo.")
+                    }
+                }
+        }
+    }
+
+    fun sendBitmapToChat(bitmap: Bitmap, title: String) {
+        val approxBytes = (bitmap.byteCount / 4L).coerceAtLeast(1024L)
+        val attachment = PendingAttachment(
+            fileName = if (title.endsWith(".jpg", ignoreCase = true)) title else "${title.take(32)}.jpg",
+            mimeType = "image/jpeg",
+            sizeBytes = approxBytes,
+            bitmap = bitmap
+        )
+        _composer.update {
+            it.copy(
+                pendingAttachment = attachment,
+                currentDestination = AgniDestination.CHAT,
+                errorBanner = null
+            )
+        }
+    }
+
+    fun setEditorBitmap(bitmap: Bitmap, title: String) {
+        _mediaStudio.update {
+            it.copy(
+                editorSourceBitmap = bitmap,
+                editorSourceTitle = title,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun generateAiImage(prompt: String) {
+        val clean = prompt.trim()
+        if (clean.isEmpty() || _mediaStudio.value.isAiGenerating) return
+        viewModelScope.launch {
+            _mediaStudio.update {
+                it.copy(isAiGenerating = true, statusMessage = null, errorMessage = null)
+            }
+            try {
+                val bmp = imageAiService.generateImage(clean)
+                _mediaStudio.update {
+                    it.copy(
+                        isAiGenerating = false,
+                        editorSourceBitmap = bmp,
+                        editorSourceTitle = clean.take(36),
+                        statusMessage = "AI photo created! You can now edit or save it.",
+                        errorMessage = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                _mediaStudio.update { it.copy(isAiGenerating = false) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "AI image generation error", e)
+                _mediaStudio.update {
+                    it.copy(
+                        isAiGenerating = false,
+                        errorMessage = e.localizedMessage
+                            ?: "AI image generation failed. Note: Cloud AI image generation may require Firebase Blaze plan."
+                    )
+                }
+            }
+        }
+    }
+
+    fun aiEditCurrentImage(instruction: String) {
+        val src = _mediaStudio.value.editorSourceBitmap ?: return
+        val clean = instruction.trim()
+        if (clean.isEmpty() || _mediaStudio.value.isAiGenerating) return
+        viewModelScope.launch {
+            _mediaStudio.update {
+                it.copy(isAiGenerating = true, statusMessage = null, errorMessage = null)
+            }
+            try {
+                val edited = imageAiService.editImage(src, clean)
+                _mediaStudio.update {
+                    it.copy(
+                        isAiGenerating = false,
+                        editorSourceBitmap = edited,
+                        statusMessage = "AI edit applied! Tap Save Photo to keep it in Gallery.",
+                        errorMessage = null
+                    )
+                }
+            } catch (e: CancellationException) {
+                _mediaStudio.update { it.copy(isAiGenerating = false) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "AI photo edit error", e)
+                _mediaStudio.update {
+                    it.copy(
+                        isAiGenerating = false,
+                        errorMessage = e.localizedMessage
+                            ?: "AI photo edit failed. On-device filters, sliders, rotation & captions still work offline!"
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveEditedBitmap(bitmap: Bitmap) {
+        viewModelScope.launch {
+            AgniMediaProcessor.saveBitmapToGallery(appContext, bitmap, "AgniAI_Edit")
+                .onSuccess {
+                    _mediaStudio.update {
+                        it.copy(
+                            statusMessage = "Photo saved to Gallery (Pictures/AgniAI).",
+                            errorMessage = null
+                        )
+                    }
+                }
+                .onFailure { err ->
+                    _mediaStudio.update {
+                        it.copy(
+                            statusMessage = null,
+                            errorMessage = err.localizedMessage ?: "Could not save photo."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun addBitmapToVideoSlides(bitmap: Bitmap) {
+        _mediaStudio.update { state ->
+            val updated = (state.videoSlides + bitmap).take(12)
+            state.copy(
+                videoSlides = updated,
+                statusMessage = "Video Studio now has ${updated.size} photo slide(s).",
+                errorMessage = null
+            )
+        }
+    }
+
+    fun removeVideoSlide(index: Int) {
+        _mediaStudio.update { state ->
+            if (index !in state.videoSlides.indices) state
+            else state.copy(videoSlides = state.videoSlides.toMutableList().apply { removeAt(index) })
+        }
+    }
+
+    fun clearVideoSlides() {
+        _mediaStudio.update { it.copy(videoSlides = emptyList()) }
+    }
+
+    fun exportSlideshowVideo(secondsPerSlide: Int, titleText: String) {
+        val slides = _mediaStudio.value.videoSlides
+        if (slides.isEmpty() || _mediaStudio.value.isVideoExporting) return
+        viewModelScope.launch {
+            _mediaStudio.update {
+                it.copy(
+                    isVideoExporting = true,
+                    videoExportProgress = 0.02f,
+                    statusMessage = null,
+                    errorMessage = null
+                )
+            }
+            AgniMediaProcessor.createSlideshowVideo(
+                context = appContext,
+                bitmaps = slides,
+                secondsPerSlide = secondsPerSlide,
+                titleText = titleText,
+                onProgress = { pct ->
+                    _mediaStudio.update { it.copy(videoExportProgress = pct) }
+                }
+            ).onSuccess { savedUri ->
+                _mediaStudio.update {
+                    it.copy(
+                        isVideoExporting = false,
+                        videoExportProgress = 1f,
+                        lastExportedVideoUri = savedUri,
+                        statusMessage = "MP4 video created & saved to Gallery (Movies/AgniAI)!",
+                        errorMessage = null
+                    )
+                }
+            }.onFailure { err ->
+                Log.e(TAG, "Slideshow MP4 export failed", err)
+                _mediaStudio.update {
+                    it.copy(
+                        isVideoExporting = false,
+                        videoExportProgress = 0f,
+                        errorMessage = err.localizedMessage ?: "Video export failed."
+                    )
+                }
+            }
+        }
+    }
+
+    fun trimStudioVideo(sourceUri: Uri, startMs: Long, endMs: Long) {
+        if (_mediaStudio.value.isVideoExporting) return
+        viewModelScope.launch {
+            _mediaStudio.update {
+                it.copy(
+                    isVideoExporting = true,
+                    videoExportProgress = 0.02f,
+                    statusMessage = null,
+                    errorMessage = null
+                )
+            }
+            AgniMediaProcessor.trimVideo(
+                context = appContext,
+                sourceUri = sourceUri,
+                startMs = startMs,
+                endMs = endMs,
+                onProgress = { pct ->
+                    _mediaStudio.update { it.copy(videoExportProgress = pct) }
+                }
+            ).onSuccess { savedUri ->
+                _mediaStudio.update {
+                    it.copy(
+                        isVideoExporting = false,
+                        videoExportProgress = 1f,
+                        lastExportedVideoUri = savedUri,
+                        statusMessage = "Trimmed MP4 saved to Gallery (Movies/AgniAI)!",
+                        errorMessage = null
+                    )
+                }
+            }.onFailure { err ->
+                Log.e(TAG, "Video trim failed", err)
+                _mediaStudio.update {
+                    it.copy(
+                        isVideoExporting = false,
+                        videoExportProgress = 0f,
+                        errorMessage = err.localizedMessage ?: "Video trim failed."
+                    )
+                }
             }
         }
     }

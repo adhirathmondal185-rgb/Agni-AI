@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -43,9 +42,11 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.School
@@ -134,7 +135,8 @@ fun ChatWorkspaceScreen(
     onStopGeneration: () -> Unit,
     onShowError: (String) -> Unit,
     onClearError: () -> Unit,
-    onOpenFeedback: () -> Unit
+    onOpenFeedback: () -> Unit,
+    onOpenMediaStudio: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -319,9 +321,10 @@ fun ChatWorkspaceScreen(
                         modifier = Modifier.testTag("top_new_chat_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
+                            painter = painterResource(id = R.drawable.ic_agni_flame),
                             contentDescription = stringResource(R.string.cd_new_chat),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -343,11 +346,19 @@ fun ChatWorkspaceScreen(
                                 )
                             },
                             leadingIcon = {
-                                Icon(
-                                    imageVector = modeIcon(mode),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                if (mode == AssistantMode.CHAT) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_agni_flame),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = modeIcon(mode),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
@@ -695,44 +706,62 @@ fun ChatWorkspaceScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ComposerToolChip(
-                            icon = Icons.Rounded.Image,
-                            label = "Image",
-                            testTag = "attach_image_button",
-                            onClick = {
-                                imagePickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            }
-                        )
-                        ComposerToolChip(
-                            icon = Icons.Rounded.PictureAsPdf,
-                            label = "PDF",
-                            testTag = "attach_pdf_button",
-                            onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
-                        )
-                        ComposerToolChip(
-                            icon = if (composer.isVoiceListening) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                            label = if (composer.isVoiceListening) "Stop" else "Voice",
-                            highlighted = composer.isVoiceListening,
-                            testTag = "voice_input_button",
-                            onClick = {
-                                if (composer.isVoiceListening) {
-                                    voiceManager.stopListening()
-                                } else {
-                                    val hasPerm = ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.RECORD_AUDIO
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                    if (hasPerm) {
-                                        voiceManager.startListening(composer.selectedLanguage.localeTag)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        item {
+                            ComposerToolChip(
+                                icon = Icons.Rounded.Image,
+                                label = "Image",
+                                testTag = "attach_image_button",
+                                onClick = {
+                                    imagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                            )
+                        }
+                        item {
+                            ComposerToolChip(
+                                icon = Icons.Rounded.PictureAsPdf,
+                                label = "PDF",
+                                testTag = "attach_pdf_button",
+                                onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
+                            )
+                        }
+                        item {
+                            ComposerToolChip(
+                                icon = if (composer.isVoiceListening) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                                label = if (composer.isVoiceListening) "Stop" else "Voice",
+                                highlighted = composer.isVoiceListening,
+                                testTag = "voice_input_button",
+                                onClick = {
+                                    if (composer.isVoiceListening) {
+                                        voiceManager.stopListening()
                                     } else {
-                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        val hasPerm = ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (hasPerm) {
+                                            voiceManager.startListening(composer.selectedLanguage.localeTag)
+                                        } else {
+                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
+                        item {
+                            ComposerToolChip(
+                                icon = Icons.Rounded.PhotoLibrary,
+                                label = "Studio",
+                                highlighted = true,
+                                testTag = "open_media_studio_button",
+                                onClick = onOpenMediaStudio
+                            )
+                        }
                     }
 
                     if (composer.selectedMode == AssistantMode.RESEARCH) {
@@ -1020,12 +1049,21 @@ private fun WelcomeEmptyState(
                         modifier = Modifier.size(38.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = modeIcon(mode),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            if (mode == AssistantMode.CHAT) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_agni_flame),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = modeIcon(mode),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.width(14.dp))
@@ -1244,7 +1282,7 @@ private fun ComposerToolChip(
 }
 
 fun modeIcon(mode: AssistantMode): ImageVector = when (mode) {
-    AssistantMode.CHAT -> Icons.Rounded.AutoAwesome
+    AssistantMode.CHAT -> Icons.Rounded.LocalFireDepartment
     AssistantMode.TRANSLATION -> Icons.Rounded.Translate
     AssistantMode.EDUCATION -> Icons.Rounded.School
     AssistantMode.MATH -> Icons.Rounded.Calculate

@@ -23,4 +23,7 @@
     <string name="cd_architecture_back">Back to AI Chat</string>
     <string name="custom_model_section_title">Custom AGNI Model (FastAPI / Open-Source)</string>
     <string name="custom_model_section_subtitle">Connect your own fine-tuned AGNI LoRA model, FastAPI server, or any OpenAI-compatible HTTPS API. Your URL and optional token stay private on this device.</string>
+    <string name="nav_media_studio">Image &amp; Video Studio</string>
+    <string name="media_studio_title">Agni Media Studio</string>
+    <string name="media_studio_subtitle">Find Photos · AI Create &amp; Edit · Video Maker</string>
 </resources>

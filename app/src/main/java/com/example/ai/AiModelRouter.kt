@@ -56,8 +56,8 @@ class FirebaseAiModelRouter : AiModelRouter {
     private val modelCatalog = listOf(
         ModelOption(
             modelKey = "gemini-3.8-flash",
-            displayName = "Agni Flash (Gemini 3.8)",
-            provider = "Firebase AI Logic",
+            displayName = "Agni Flash",
+            provider = "Agni Cloud AI",
             tier = "balanced",
             badge = "DEFAULT",
             description = "Frontier-class multilingual speed, Vision, PDF analysis & live Web Research.",
@@ -67,8 +67,8 @@ class FirebaseAiModelRouter : AiModelRouter {
         ),
         ModelOption(
             modelKey = "gemini-3.5-flash-lite",
-            displayName = "Agni Lite (Gemini 3.5 Lite)",
-            provider = "Firebase AI Logic",
+            displayName = "Agni Lite",
+            provider = "Agni Cloud AI",
             tier = "fast",
             badge = "ULTRA FAST",
             description = "Low-latency workhorse ideal for rapid translations, Q&A, and voice chat.",
@@ -78,8 +78,8 @@ class FirebaseAiModelRouter : AiModelRouter {
         ),
         ModelOption(
             modelKey = "gemini-4-argon",
-            displayName = "Agni Argon (Gemini 4)",
-            provider = "Firebase AI Logic",
+            displayName = "Agni Argon",
+            provider = "Agni Cloud AI",
             tier = "reasoning",
             badge = "DEEP STEM",
             description = "Maximum reasoning power for advanced mathematics, coding & deep research (Blaze plan).",

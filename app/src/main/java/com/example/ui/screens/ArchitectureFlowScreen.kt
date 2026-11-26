@@ -27,9 +27,9 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AltRoute
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.History
@@ -150,10 +150,10 @@ private val AgniFlowNodes: Map<PipelineNodeId, FlowNodeSpec> = mapOf(
         id = PipelineNodeId.AGNI_FINE_TUNED,
         code = "H",
         title = "AGNI Fine Tuned Model",
-        bengaliSubtitle = "AGNI ফাইন-টিউনড / লাইভ Gemini ইঞ্জিন",
+        bengaliSubtitle = "AGNI ফাইন-টিউনড / লাইভ Agni ক্লাউড ইঞ্জিন",
         icon = Icons.Rounded.Tune,
         isLiveInAndroid = true,
-        technicalDetail = "Active inference branch served today by Agni Flash (Gemini 3.8), Agni Lite (Gemini 3.5 Lite), and Agni Argon (Gemini 4) via Firebase AI Logic — ready to swap with custom AGNI PEFT/LoRA weights."
+        technicalDetail = "Active inference branch served today by Agni Flash, Agni Lite, and Agni Argon — ready to swap with custom AGNI PEFT/LoRA weights."
     ),
     PipelineNodeId.RESPONSE_PROCESSING to FlowNodeSpec(
         id = PipelineNodeId.RESPONSE_PROCESSING,
@@ -187,7 +187,7 @@ private val AgniFlowNodes: Map<PipelineNodeId, FlowNodeSpec> = mapOf(
         code = "L",
         title = "Return Answer to User",
         bengaliSubtitle = "ব্যবহারকারীর স্ক্রিনে তাৎক্ষণিক উত্তর প্রদর্শন",
-        icon = Icons.Rounded.AutoAwesome,
+        icon = Icons.Rounded.LocalFireDepartment,
         isLiveInAndroid = true,
         technicalDetail = "Renders the final formatted answer in the user's preferred language with copyable code blocks, source chips, and follow-up context."
     )

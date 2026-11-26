@@ -47,6 +47,7 @@ import com.example.ui.components.AgniSidebarContent
 import com.example.ui.screens.ArchitectureFlowScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatWorkspaceScreen
+import com.example.ui.screens.MediaStudioScreen
 import com.example.ui.screens.MemoryScreen
 import com.example.ui.screens.SettingsAndFeedbackScreen
 import com.example.ui.screens.WorkspaceHubScreen
@@ -148,6 +149,7 @@ private fun AgniAuthenticatedShell(
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 AgniViewModel(
+                    appContext = app.applicationContext,
                     repository = AgniRepository(db),
                     aiRouter = FirebaseAiModelRouter(),
                     customModelStore = CustomModelConfigStore(app, user.uid),
@@ -172,6 +174,7 @@ private fun AgniAuthenticatedShell(
     val modelCatalog by viewModel.modelCatalog.collectAsStateWithLifecycle()
     val customEndpointConfig by viewModel.customEndpointConfig.collectAsStateWithLifecycle()
     val customTestState by viewModel.customTestState.collectAsStateWithLifecycle()
+    val mediaStudioState by viewModel.mediaStudio.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(composer.statusSnackbar) {
@@ -222,7 +225,30 @@ private fun AgniAuthenticatedShell(
                                     onStopGeneration = { viewModel.stopGeneration() },
                                     onShowError = { viewModel.showError(it) },
                                     onClearError = { viewModel.clearError() },
-                                    onOpenFeedback = { viewModel.navigateTo(AgniDestination.SETTINGS) }
+                                    onOpenFeedback = { viewModel.navigateTo(AgniDestination.SETTINGS) },
+                                    onOpenMediaStudio = { viewModel.navigateTo(AgniDestination.MEDIA_STUDIO) }
+                                )
+                            }
+                            AgniDestination.MEDIA_STUDIO -> {
+                                MediaStudioScreen(
+                                    state = mediaStudioState,
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onSearchImages = { viewModel.searchStudioImages(it) },
+                                    onSelectSearchResultForEdit = { viewModel.selectSearchResultForEdit(it) },
+                                    onDownloadSearchResult = { viewModel.downloadSearchResult(it) },
+                                    onAddSearchResultToVideo = { viewModel.addSearchResultToVideo(it) },
+                                    onSendBitmapToChat = { bmp, title -> viewModel.sendBitmapToChat(bmp, title) },
+                                    onSendSearchResultToChat = { viewModel.sendSearchResultToChat(it) },
+                                    onGenerateAiImage = { viewModel.generateAiImage(it) },
+                                    onAiEditCurrentImage = { viewModel.aiEditCurrentImage(it) },
+                                    onSetEditorBitmap = { bmp, title -> viewModel.setEditorBitmap(bmp, title) },
+                                    onSaveEditedBitmap = { viewModel.saveEditedBitmap(it) },
+                                    onAddBitmapToVideoSlides = { viewModel.addBitmapToVideoSlides(it) },
+                                    onRemoveVideoSlide = { viewModel.removeVideoSlide(it) },
+                                    onClearVideoSlides = { viewModel.clearVideoSlides() },
+                                    onExportSlideshowVideo = { sec, title -> viewModel.exportSlideshowVideo(sec, title) },
+                                    onTrimVideo = { uri, s, e -> viewModel.trimStudioVideo(uri, s, e) },
+                                    onClearStudioMessage = { viewModel.clearStudioMessage() }
                                 )
                             }
                             AgniDestination.HUB -> {

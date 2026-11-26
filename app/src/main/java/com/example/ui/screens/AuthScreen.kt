@@ -26,9 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Public
@@ -254,8 +254,8 @@ fun AuthScreen(
                         modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        CapabilityRow(Icons.Rounded.AutoAwesome, "Streaming AI Chat & Model Router", "Switch between Agni Flash, Lite, and Argon.")
-                        CapabilityRow(Icons.Rounded.DocumentScanner, "Image & PDF Intelligence", "Upload photos or PDFs for deep analysis.")
+                        CapabilityRow(Icons.Rounded.LocalFireDepartment, "Streaming AI Chat & Model Router", "Switch between Agni Flash, Lite, Argon & Custom AI.")
+                        CapabilityRow(Icons.Rounded.DocumentScanner, "Image Finder, Photo & Video Studio", "Find photos, create/edit images & make MP4 videos.")
                         CapabilityRow(Icons.Rounded.Mic, "Multilingual Voice & Translation", "Speak naturally across Indian languages.")
                         CapabilityRow(Icons.Rounded.Public, "Live Web Research & Coding", "Grounded citations, math proofs & clean code.")
                     }
