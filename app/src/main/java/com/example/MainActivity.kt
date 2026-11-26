@@ -216,17 +216,21 @@ private fun AgniAuthenticatedShell(
                                     onSelectLanguage = { viewModel.selectLanguage(it) },
                                     onSelectTranslationTarget = { viewModel.selectTranslationTarget(it) },
                                     onToggleTransliteration = { viewModel.toggleTransliteration(it) },
+                                    onSelectVoiceGender = { viewModel.selectVoiceGender(it) },
+                                    onToggleAutoSpeakReplies = { viewModel.toggleAutoSpeakReplies(it) },
                                     onDraftChange = { viewModel.updateDraft(it) },
                                     onAttachFile = { viewModel.attachFile(it) },
                                     onClearAttachment = { viewModel.clearAttachment() },
                                     onVoiceListeningChanged = { viewModel.setVoiceListening(it) },
                                     onVoiceResult = { viewModel.onVoiceFinalTranscript(it) },
+                                    onVoiceConversationResult = { viewModel.sendVoiceConversationTranscript(it) },
                                     onSendMessage = { viewModel.sendMessage(it) },
                                     onStopGeneration = { viewModel.stopGeneration() },
                                     onShowError = { viewModel.showError(it) },
                                     onClearError = { viewModel.clearError() },
                                     onOpenFeedback = { viewModel.navigateTo(AgniDestination.SETTINGS) },
-                                    onOpenMediaStudio = { viewModel.navigateTo(AgniDestination.MEDIA_STUDIO) }
+                                    onOpenMediaStudio = { viewModel.navigateTo(AgniDestination.MEDIA_STUDIO) },
+                                    onNavigateDestination = { viewModel.navigateTo(it) }
                                 )
                             }
                             AgniDestination.MEDIA_STUDIO -> {

@@ -26,4 +26,12 @@
     <string name="nav_media_studio">Image &amp; Video Studio</string>
     <string name="media_studio_title">Agni Media Studio</string>
     <string name="media_studio_subtitle">Find Photos · AI Create &amp; Edit · Video Maker</string>
+    <string name="cd_more_options">More tools and options</string>
+    <string name="cd_speak_message">Read reply aloud</string>
+    <string name="cd_stop_speaking">Stop speaking</string>
+    <string name="voice_female_label">Female (মেয়ে)</string>
+    <string name="voice_male_label">Male (ছেলে)</string>
+    <string name="live_voice_title">AGNI AI · লাইভ কথোপকথন</string>
+    <string name="cd_end_voice_call">End voice conversation</string>
+    <string name="cd_start_voice_call">Start live voice conversation</string>
 </resources>

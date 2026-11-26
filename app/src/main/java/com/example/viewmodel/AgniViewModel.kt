@@ -34,6 +34,7 @@ import com.example.model.UsageMetrics
 import com.example.model.UserFeedback
 import com.example.model.UserProfile
 import com.example.model.UserSettings
+import com.example.voice.AssistantVoiceGender
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -108,7 +109,11 @@ data class ChatComposerState(
     val errorBanner: String? = null,
     val statusSnackbar: String? = null,
     val historySearchQuery: String = "",
-    val currentDestination: AgniDestination = AgniDestination.CHAT
+    val currentDestination: AgniDestination = AgniDestination.CHAT,
+    val voiceGender: AssistantVoiceGender = AssistantVoiceGender.FEMALE,
+    val autoSpeakReplies: Boolean = true,
+    val lastCompletedReplyText: String? = null,
+    val lastCompletedReplySeq: Long = 0L
 )
 
 data class MediaStudioState(
@@ -157,7 +162,14 @@ class AgniViewModel(
             initialValue = buildDynamicCatalog(customModelStore.config.value)
         )
 
-    private val _composer = MutableStateFlow(ChatComposerState())
+    private val voicePrefs = appContext.getSharedPreferences("agni_voice_prefs", Context.MODE_PRIVATE)
+
+    private val _composer = MutableStateFlow(
+        ChatComposerState(
+            voiceGender = AssistantVoiceGender.fromKey(voicePrefs.getString("voice_gender", "female")),
+            autoSpeakReplies = voicePrefs.getBoolean("auto_speak_replies", true)
+        )
+    )
     val composer: StateFlow<ChatComposerState> = _composer.asStateFlow()
 
     private val _pipelineTrace = MutableStateFlow(PipelineTraceState())
@@ -436,6 +448,16 @@ class AgniViewModel(
         _composer.update { it.copy(includeTransliteration = enabled) }
     }
 
+    fun selectVoiceGender(gender: AssistantVoiceGender) {
+        voicePrefs.edit().putString("voice_gender", gender.key).apply()
+        _composer.update { it.copy(voiceGender = gender) }
+    }
+
+    fun toggleAutoSpeakReplies(enabled: Boolean) {
+        voicePrefs.edit().putBoolean("auto_speak_replies", enabled).apply()
+        _composer.update { it.copy(autoSpeakReplies = enabled) }
+    }
+
     fun updateDraft(text: String) {
         _composer.update { it.copy(draftText = text) }
     }
@@ -466,9 +488,19 @@ class AgniViewModel(
         viewModelScope.launch {
             repository.incrementUsage(voiceDelta = 1L)
         }
-        if (settings.value.voiceAutoSend && combined.isNotBlank()) {
+        if ((settings.value.voiceAutoSend || _composer.value.autoSpeakReplies) && combined.isNotBlank()) {
             sendMessage()
         }
+    }
+
+    fun sendVoiceConversationTranscript(transcript: String) {
+        val clean = transcript.trim()
+        if (clean.isEmpty()) return
+        _composer.update { it.copy(draftText = "", isVoiceListening = false, errorBanner = null) }
+        viewModelScope.launch {
+            repository.incrementUsage(voiceDelta = 1L)
+        }
+        sendMessage(overridePrompt = clean)
     }
 
     fun showError(message: String) {
@@ -688,7 +720,9 @@ class AgniViewModel(
                     it.copy(
                         isStreaming = false,
                         streamingText = "",
-                        streamingCitations = emptyList()
+                        streamingCitations = emptyList(),
+                        lastCompletedReplyText = finalResponseText,
+                        lastCompletedReplySeq = it.lastCompletedReplySeq + 1L
                     )
                 }
             } catch (e: CancellationException) {

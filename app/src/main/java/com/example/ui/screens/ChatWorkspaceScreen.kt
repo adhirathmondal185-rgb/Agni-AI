@@ -9,7 +9,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,53 +25,49 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Calculate
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.Face3
 import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
-import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,6 +87,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -105,14 +102,16 @@ import com.example.model.UiState
 import com.example.ui.components.MarkdownMessageView
 import com.example.ui.theme.AgniAmber
 import com.example.ui.theme.AgniFlame
-import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.NavyAbyss
 import com.example.util.AttachmentLoader
+import com.example.viewmodel.AgniDestination
 import com.example.viewmodel.ChatComposerState
+import com.example.voice.AgniVoiceSpeaker
+import com.example.voice.AssistantVoiceGender
 import com.example.voice.VoiceInputManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatWorkspaceScreen(
     composer: ChatComposerState,
@@ -126,52 +125,180 @@ fun ChatWorkspaceScreen(
     onSelectLanguage: (AgniLanguage) -> Unit,
     onSelectTranslationTarget: (AgniLanguage) -> Unit,
     onToggleTransliteration: (Boolean) -> Unit,
+    onSelectVoiceGender: (AssistantVoiceGender) -> Unit,
+    onToggleAutoSpeakReplies: (Boolean) -> Unit,
     onDraftChange: (String) -> Unit,
     onAttachFile: (PendingAttachment) -> Unit,
     onClearAttachment: () -> Unit,
     onVoiceListeningChanged: (Boolean) -> Unit,
     onVoiceResult: (String) -> Unit,
+    onVoiceConversationResult: (String) -> Unit,
     onSendMessage: (String?) -> Unit,
     onStopGeneration: () -> Unit,
     onShowError: (String) -> Unit,
     onClearError: () -> Unit,
     onOpenFeedback: () -> Unit,
-    onOpenMediaStudio: () -> Unit
+    onOpenMediaStudio: () -> Unit,
+    onNavigateDestination: (AgniDestination) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val listState = rememberLazyListState()
 
+    var showMoreMenuSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
     var pickingTranslationTarget by remember { mutableStateOf(false) }
+
+    var isSpeaking by remember { mutableStateOf(false) }
+    var speakingMessageId by remember { mutableStateOf<String?>(null) }
+
+    // Hands-free Male & Female Live Voice Conversation Mode state
+    var isLiveVoiceOpen by remember { mutableStateOf(false) }
+    var pendingStartLiveVoiceAfterPerm by remember { mutableStateOf(false) }
+    var liveUserTranscript by remember { mutableStateOf("") }
+    var liveVoiceHint by remember { mutableStateOf<String?>(null) }
+    var autoListenTrigger by remember { mutableLongStateOf(0L) }
+
+    // On-device Male & Female Assistant Text-to-Speech Speaker
+    val voiceSpeaker = remember(context) {
+        AgniVoiceSpeaker(
+            context = context,
+            onSpeakingStateChanged = { active, msgId ->
+                isSpeaking = active
+                speakingMessageId = msgId
+            },
+            onSpeechCompleted = { finishedId ->
+                // Continuous hands-free loop: once AI finishes speaking, auto-listen for next question
+                if (isLiveVoiceOpen && finishedId != null &&
+                    (finishedId.startsWith("latest_") || finishedId.startsWith("voice_preview_"))
+                ) {
+                    autoListenTrigger++
+                }
+            },
+            onError = { err ->
+                if (isLiveVoiceOpen) liveVoiceHint = err else onShowError(err)
+            }
+        )
+    }
+    DisposableEffect(voiceSpeaker) {
+        onDispose { voiceSpeaker.shutdown() }
+    }
+
+    // Auto-speak fresh AI answers when completed
+    var lastSpokenSeq by remember { mutableLongStateOf(composer.lastCompletedReplySeq) }
+    LaunchedEffect(composer.lastCompletedReplySeq) {
+        val reply = composer.lastCompletedReplyText
+        if (composer.lastCompletedReplySeq > lastSpokenSeq && !reply.isNullOrBlank()) {
+            lastSpokenSeq = composer.lastCompletedReplySeq
+            if (isLiveVoiceOpen || composer.autoSpeakReplies) {
+                liveVoiceHint = null
+                voiceSpeaker.speak(
+                    rawText = reply,
+                    localeTag = composer.selectedLanguage.localeTag,
+                    gender = composer.voiceGender,
+                    messageId = "latest_${composer.lastCompletedReplySeq}"
+                )
+            }
+        }
+    }
+
+    // Stop speaking if user starts streaming a new message
+    LaunchedEffect(composer.isStreaming) {
+        if (composer.isStreaming && isSpeaking) {
+            voiceSpeaker.stop()
+        }
+    }
 
     // Voice Input Manager
     val voiceManager = remember(context) {
         VoiceInputManager(
             context = context,
-            onPartialResult = { partial -> onDraftChange(partial) },
-            onFinalResult = { finalText -> onVoiceResult(finalText) },
+            onPartialResult = { partial ->
+                if (isLiveVoiceOpen) {
+                    liveUserTranscript = partial
+                    liveVoiceHint = null
+                } else {
+                    onDraftChange(partial)
+                }
+            },
+            onFinalResult = { finalText ->
+                if (isLiveVoiceOpen) {
+                    liveUserTranscript = finalText
+                    liveVoiceHint = null
+                    onVoiceConversationResult(finalText)
+                } else {
+                    onVoiceResult(finalText)
+                }
+            },
             onListeningChanged = { listening -> onVoiceListeningChanged(listening) },
-            onError = { err -> onShowError(err) }
+            onError = { err ->
+                if (isLiveVoiceOpen) {
+                    liveVoiceHint = "শুনতে পাইনি — আবার কথা বলতে নিচের মাইক বাটনে চাপ দিন"
+                } else {
+                    onShowError(err)
+                }
+            }
         )
     }
     DisposableEffect(voiceManager) {
         onDispose { voiceManager.stopListening() }
     }
 
+    // Auto-reopen mic cleanly after AI finishes speaking in Live Voice Conversation Mode
+    LaunchedEffect(autoListenTrigger) {
+        if (autoListenTrigger > 0L && isLiveVoiceOpen && !composer.isStreaming && !isSpeaking) {
+            delay(450L)
+            if (isLiveVoiceOpen && !composer.isStreaming && !isSpeaking) {
+                val hasPerm = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasPerm) {
+                    liveVoiceHint = null
+                    voiceManager.startListening(composer.selectedLanguage.localeTag)
+                }
+            }
+        }
+    }
+
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
+            voiceSpeaker.stop()
+            if (pendingStartLiveVoiceAfterPerm) {
+                pendingStartLiveVoiceAfterPerm = false
+                isLiveVoiceOpen = true
+                liveUserTranscript = ""
+                liveVoiceHint = null
+            }
             voiceManager.startListening(composer.selectedLanguage.localeTag)
         } else {
-            onShowError("Microphone permission is needed for multilingual voice input.")
+            pendingStartLiveVoiceAfterPerm = false
+            onShowError("Microphone permission is needed for voice conversation.")
         }
     }
 
-    // Zero-permission Photo Picker for Image Analysis
+    fun startLiveVoiceConversation(targetGender: AssistantVoiceGender = composer.voiceGender) {
+        onSelectVoiceGender(targetGender)
+        voiceSpeaker.stop()
+        val hasPerm = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasPerm) {
+            isLiveVoiceOpen = true
+            liveUserTranscript = ""
+            liveVoiceHint = null
+            voiceManager.startListening(composer.selectedLanguage.localeTag)
+        } else {
+            pendingStartLiveVoiceAfterPerm = true
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -184,7 +311,6 @@ fun ChatWorkspaceScreen(
         }
     }
 
-    // Zero-permission Storage Access Framework picker for PDF Analysis
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -208,758 +334,619 @@ fun ChatWorkspaceScreen(
         }
     }
 
-    Column(
+    val bgBase = MaterialTheme.colorScheme.background
+    val emberGlow = AgniFlame.copy(alpha = 0.14f)
+    val amberGlow = AgniAmber.copy(alpha = 0.08f)
+
+    // Full-screen atmospheric Agni AI canvas
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .imePadding()
-    ) {
-        // Top Header Bar
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 1.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (showDrawerButton) {
-                        IconButton(
-                            onClick = onOpenDrawer,
-                            modifier = Modifier.testTag("drawer_menu_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Menu,
-                                contentDescription = stringResource(R.string.cd_open_drawer)
-                            )
-                        }
-                    }
-
-                    // Model Router Pill Selector
-                    Surface(
-                        onClick = { showModelSheet = true },
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("model_selector_pill")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(AgniFlame)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = activeModel.displayName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${composer.selectedLanguage.nativeName} · ${composer.selectedMode.label}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = "Select AI Model",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Language Selector Chip
-                    Surface(
-                        onClick = {
-                            pickingTranslationTarget = false
-                            showLanguageSheet = true
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                        modifier = Modifier.testTag("language_selector_button")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Language,
-                                contentDescription = "Select language",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = composer.selectedLanguage.nativeName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onNewChat,
-                        modifier = Modifier.testTag("top_new_chat_button")
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_agni_flame),
-                            contentDescription = stringResource(R.string.cd_new_chat),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                // Specialist Mode Switcher Ribbon
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(AssistantMode.entries) { mode ->
-                        val selected = mode == composer.selectedMode
-                        FilterChip(
-                            selected = selected,
-                            onClick = { onSelectMode(mode) },
-                            label = {
-                                Text(
-                                    text = mode.shortLabel,
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            },
-                            leadingIcon = {
-                                if (mode == AssistantMode.CHAT) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_agni_flame),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = modeIcon(mode),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            modifier = Modifier.testTag("mode_chip_${mode.key}")
-                        )
-                    }
-                }
-
-                // Translation Studio Bar when in Translation Mode
-                AnimatedVisibility(visible = composer.selectedMode == AssistantMode.TRANSLATION) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = "Target:",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    onClick = {
-                                        pickingTranslationTarget = true
-                                        showLanguageSheet = true
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.SwapHoriz,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "${composer.translationTarget.displayName} (${composer.translationTarget.nativeName})",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Phonetics",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Switch(
-                                    checked = composer.includeTransliteration,
-                                    onCheckedChange = onToggleTransliteration
-                                )
-                            }
-                        }
-                    }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            }
-        }
-
-        // Error Banner
-        AnimatedVisibility(visible = composer.errorBanner != null) {
-            Surface(
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = composer.errorBanner.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        bgBase,
+                        bgBase,
+                        MaterialTheme.colorScheme.surfaceContainerLowest
                     )
-                    IconButton(onClick = onClearError, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = "Dismiss error",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // Main Chat Content Area
+                )
+            )
+    ) {
+        // Subtle ambient Agni flame glow in upper backdrop
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.TopCenter
+                .fillMaxWidth()
+                .height(340.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(emberGlow, amberGlow, Color.Transparent),
+                        radius = 780f
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
         ) {
-            when {
-                messagesState is UiState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            // Minimal Floating Top Bar (Agni Emblem + Voice Pill + 3-Dot More Button)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                if (showDrawerButton) {
+                    IconButton(
+                        onClick = onOpenDrawer,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("drawer_menu_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Menu,
+                            contentDescription = stringResource(R.string.cd_open_drawer)
+                        )
                     }
                 }
-                messages.isEmpty() && !composer.isStreaming -> {
-                    WelcomeEmptyState(
-                        mode = composer.selectedMode,
-                        language = composer.selectedLanguage,
-                        onSelectPrompt = { prompt -> onSendMessage(prompt) }
+
+                // Agni AI Brand Identity
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, AgniFlame.copy(alpha = 0.5f)),
+                        color = NavyAbyss
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_agni_logo_fg_1795283955599),
+                            contentDescription = stringResource(R.string.cd_agni_emblem),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "AGNI AI",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "${activeModel.displayName} · ${composer.selectedLanguage.nativeName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Compact Live Voice Conversation / Stop Speaking Pill
+                Surface(
+                    onClick = {
+                        if (isSpeaking) {
+                            voiceSpeaker.stop()
+                        } else {
+                            startLiveVoiceConversation(composer.voiceGender)
+                        }
+                    },
+                    shape = RoundedCornerShape(50),
+                    color = if (isSpeaking) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                    ),
+                    modifier = Modifier.testTag("top_voice_toggle_pill")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isSpeaking) Icons.Rounded.StopCircle else Icons.Rounded.RecordVoiceOver,
+                            contentDescription = if (isSpeaking) stringResource(R.string.cd_stop_speaking)
+                            else stringResource(R.string.cd_start_voice_call),
+                            tint = if (isSpeaking) Color.White else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = if (isSpeaking) "Stop" else "কথা (${composer.voiceGender.bengaliLabel})",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isSpeaking) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(2.dp))
+
+                // 3-Dot More Options Button (Houses Models, Modes, Language, Voice Settings, Studio, Attachments)
+                IconButton(
+                    onClick = { showMoreMenuSheet = true },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("more_options_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.cd_more_options)
                     )
                 }
-                else -> {
-                    LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .widthIn(max = 820.dp)
+            }
+
+            // Error Banner
+            AnimatedVisibility(visible = composer.errorBanner != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        items(messages, key = { it.id.ifBlank { "${it.role}_${it.content.hashCode()}" } }) { msg ->
-                            ChatMessageBubble(
-                                message = msg,
-                                onCopy = {
-                                    clipboard.setText(AnnotatedString(msg.content))
-                                },
-                                onFeedback = onOpenFeedback
+                        Text(
+                            text = composer.errorBanner.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onClearError, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Dismiss error",
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                        if (composer.isStreaming) {
-                            item(key = "streaming_bubble") {
-                                StreamingAssistantBubble(
-                                    text = composer.streamingText,
-                                    citations = composer.streamingCitations,
-                                    modelName = activeModel.displayName,
-                                    mode = composer.selectedMode
+                    }
+                }
+            }
+
+            // Full-Screen Main Canvas (Welcome Showcase OR Live Chat Feed)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    messagesState is UiState.Loading -> {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                    messages.isEmpty() && !composer.isStreaming -> {
+                        FullScreenWelcomeShowcase(
+                            mode = composer.selectedMode,
+                            language = composer.selectedLanguage,
+                            voiceGender = composer.voiceGender,
+                            onStartLiveVoice = { gender -> startLiveVoiceConversation(gender) },
+                            onSelectPrompt = { prompt -> onSendMessage(prompt) }
+                        )
+                    }
+                    else -> {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .widthIn(max = 820.dp)
+                        ) {
+                            items(messages, key = { it.id.ifBlank { "${it.role}_${it.content.hashCode()}" } }) { msg ->
+                                val msgKey = msg.id.ifBlank { "${msg.role}_${msg.content.hashCode()}" }
+                                val isThisSpeaking = isSpeaking && speakingMessageId == msgKey
+                                ChatMessageBubble(
+                                    message = msg,
+                                    isSpeakingThis = isThisSpeaking,
+                                    voiceGender = composer.voiceGender,
+                                    onToggleSpeak = {
+                                        if (isThisSpeaking) {
+                                            voiceSpeaker.stop()
+                                        } else {
+                                            voiceSpeaker.speak(
+                                                rawText = msg.content,
+                                                localeTag = composer.selectedLanguage.localeTag,
+                                                gender = composer.voiceGender,
+                                                messageId = msgKey
+                                            )
+                                        }
+                                    },
+                                    onCopy = {
+                                        clipboard.setText(AnnotatedString(msg.content))
+                                    },
+                                    onFeedback = onOpenFeedback
                                 )
+                            }
+                            if (composer.isStreaming) {
+                                item(key = "streaming_bubble") {
+                                    StreamingAssistantBubble(
+                                        text = composer.streamingText,
+                                        citations = composer.streamingCitations,
+                                        modelName = activeModel.displayName,
+                                        mode = composer.selectedMode
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // Voice Listening Banner
-        AnimatedVisibility(visible = composer.isVoiceListening) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.Mic,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = stringResource(R.string.listening_voice),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Locale: ${composer.selectedLanguage.displayName} (${composer.selectedLanguage.localeTag})",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                    TextButton(onClick = { voiceManager.stopListening() }) {
-                        Text("Stop")
-                    }
-                }
-            }
-        }
-
-        // Pending Attachment Preview Chip (Image or PDF)
-        AnimatedVisibility(visible = composer.pendingAttachment != null) {
-            composer.pendingAttachment?.let { attachment ->
+            // Voice Listening Status Banner
+            AnimatedVisibility(visible = composer.isVoiceListening) {
                 Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        if (attachment.isImage && attachment.bitmap != null) {
-                            Image(
-                                bitmap = attachment.bitmap.asImageBitmap(),
-                                contentDescription = attachment.fileName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                            )
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PictureAsPdf,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = attachment.fileName,
-                                style = MaterialTheme.typography.titleSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${if (attachment.isPdf) "PDF Document" else "Image"} · ${formatBytes(attachment.sizeBytes)} · Ready for AI analysis",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        IconButton(onClick = onClearAttachment) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.cd_remove_attachment)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Elevated Multimodal Composer Bar
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    OutlinedTextField(
-                        value = composer.draftText,
-                        onValueChange = onDraftChange,
-                        placeholder = {
-                            Text(
-                                text = modePlaceholder(composer.selectedMode, composer.selectedLanguage),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(20.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("chat_prompt_input")
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    val canSend = composer.draftText.isNotBlank() || composer.pendingAttachment != null
-                    Surface(
-                        onClick = {
-                            if (composer.isStreaming) onStopGeneration()
-                            else if (canSend) onSendMessage(null)
-                        },
-                        shape = CircleShape,
-                        color = when {
-                            composer.isStreaming -> MaterialTheme.colorScheme.error
-                            canSend -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.surfaceContainerHigh
-                        },
-                        modifier = Modifier
-                            .size(50.dp)
-                            .testTag("send_message_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (composer.isStreaming) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = stringResource(R.string.cd_send_message),
-                                tint = if (composer.isStreaming || canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Multimodal Action Toolbar (Image, PDF, Voice, Web indicator)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        item {
-                            ComposerToolChip(
-                                icon = Icons.Rounded.Image,
-                                label = "Image",
-                                testTag = "attach_image_button",
-                                onClick = {
-                                    imagePickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
-                            )
-                        }
-                        item {
-                            ComposerToolChip(
-                                icon = Icons.Rounded.PictureAsPdf,
-                                label = "PDF",
-                                testTag = "attach_pdf_button",
-                                onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
-                            )
-                        }
-                        item {
-                            ComposerToolChip(
-                                icon = if (composer.isVoiceListening) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                                label = if (composer.isVoiceListening) "Stop" else "Voice",
-                                highlighted = composer.isVoiceListening,
-                                testTag = "voice_input_button",
-                                onClick = {
-                                    if (composer.isVoiceListening) {
-                                        voiceManager.stopListening()
-                                    } else {
-                                        val hasPerm = ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.RECORD_AUDIO
-                                        ) == PackageManager.PERMISSION_GRANTED
-                                        if (hasPerm) {
-                                            voiceManager.startListening(composer.selectedLanguage.localeTag)
-                                        } else {
-                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                        item {
-                            ComposerToolChip(
-                                icon = Icons.Rounded.PhotoLibrary,
-                                label = "Studio",
-                                highlighted = true,
-                                testTag = "open_media_studio_button",
-                                onClick = onOpenMediaStudio
-                            )
-                        }
-                    }
-
-                    if (composer.selectedMode == AssistantMode.RESEARCH) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Rounded.Public,
+                                imageVector = Icons.Rounded.Mic,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(14.dp)
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Web Grounding",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.tertiary
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.listening_voice),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "${composer.selectedLanguage.displayName} (${composer.selectedLanguage.nativeName})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        TextButton(onClick = { voiceManager.stopListening() }) {
+                            Text("Stop")
+                        }
+                    }
+                }
+            }
+
+            // Pending Attachment Preview Chip (when Image or PDF attached via 3-dot menu)
+            AnimatedVisibility(visible = composer.pendingAttachment != null) {
+                composer.pendingAttachment?.let { attachment ->
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (attachment.isImage && attachment.bitmap != null) {
+                                Image(
+                                    bitmap = attachment.bitmap.asImageBitmap(),
+                                    contentDescription = attachment.fileName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                )
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PictureAsPdf,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = attachment.fileName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${if (attachment.isPdf) "PDF" else "Image"} · ${formatBytes(attachment.sizeBytes)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = onClearAttachment) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.cd_remove_attachment)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sleek Floating Bottom Search / Ask Bar (Clean single bar at bottom)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                val canSend = composer.draftText.isNotBlank() || composer.pendingAttachment != null
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        if (composer.isVoiceListening) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 820.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 4.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = composer.draftText,
+                            onValueChange = onDraftChange,
+                            placeholder = {
+                                Text(
+                                    text = modePlaceholder(composer.selectedMode, composer.selectedLanguage),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            },
+                            maxLines = 4,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                if (!composer.isStreaming && canSend) onSendMessage(null)
+                            }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("chat_prompt_input")
+                        )
+
+                        // Voice Mic Button inside Search Bar
+                        IconButton(
+                            onClick = {
+                                if (composer.isVoiceListening) {
+                                    voiceManager.stopListening()
+                                } else {
+                                    voiceSpeaker.stop()
+                                    val hasPerm = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (hasPerm) {
+                                        voiceManager.startListening(composer.selectedLanguage.localeTag)
+                                    } else {
+                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("voice_input_button")
+                        ) {
+                            Icon(
+                                imageVector = if (composer.isVoiceListening) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                                contentDescription = stringResource(R.string.cd_voice_input),
+                                tint = if (composer.isVoiceListening) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+
+                        // Send / Stop Action Button
+                        Surface(
+                            onClick = {
+                                if (composer.isStreaming) onStopGeneration()
+                                else if (canSend) {
+                                    voiceSpeaker.stop()
+                                    onSendMessage(null)
+                                }
+                            },
+                            shape = CircleShape,
+                            color = when {
+                                composer.isStreaming -> MaterialTheme.colorScheme.error
+                                canSend -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .testTag("send_message_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (composer.isStreaming) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = stringResource(R.string.cd_send_message),
+                                    tint = if (composer.isStreaming || canSend) Color.White
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // 3-Dot More Options Bottom Sheet
+    if (showMoreMenuSheet) {
+        AgniMoreOptionsSheet(
+            composer = composer,
+            activeModel = activeModel,
+            onDismiss = { showMoreMenuSheet = false },
+            onSelectVoiceGender = onSelectVoiceGender,
+            onToggleAutoSpeak = onToggleAutoSpeakReplies,
+            onTestVoice = { gender ->
+                voiceSpeaker.previewVoice(gender, composer.selectedLanguage.localeTag)
+            },
+            onNewChat = {
+                voiceSpeaker.stop()
+                onNewChat()
+            },
+            onAttachImage = {
+                imagePickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onAttachPdf = {
+                pdfPickerLauncher.launch(arrayOf("application/pdf"))
+            },
+            onOpenMediaStudio = onOpenMediaStudio,
+            onOpenModelPicker = { showModelSheet = true },
+            onOpenLanguagePicker = {
+                pickingTranslationTarget = false
+                showLanguageSheet = true
+            },
+            onOpenTranslationTargetPicker = {
+                pickingTranslationTarget = true
+                showLanguageSheet = true
+            },
+            onSelectMode = onSelectMode,
+            onToggleTransliteration = onToggleTransliteration,
+            onNavigateDestination = onNavigateDestination
+        )
     }
 
     // Model Router Selection Bottom Sheet
     if (showModelSheet) {
-        ModalBottomSheet(onDismissRequest = { showModelSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Agni AI Model Router",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = "Switch models anytime without changing your workflow. Inference credentials stay off-device via Firebase App Check.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                modelCatalog.forEach { option ->
-                    val isSelected = option.modelKey == composer.selectedModelKey
-                    Surface(
-                        onClick = {
-                            onSelectModel(option.modelKey)
-                            showModelSheet = false
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        else MaterialTheme.colorScheme.surfaceContainer,
-                        border = BorderStroke(
-                            width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = option.displayName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = if (option.isLiveReady) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                                    else MaterialTheme.colorScheme.outlineVariant
-                                ) {
-                                    Text(
-                                        text = option.badge,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (option.isLiveReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = option.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Provider: ${option.provider}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (option.isLiveReady) EmeraldSuccess else AgniAmber
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
+        AgniModelPickerSheet(
+            modelCatalog = modelCatalog,
+            selectedModelKey = composer.selectedModelKey,
+            onSelectModel = onSelectModel,
+            onDismiss = { showModelSheet = false }
+        )
     }
 
     // Multilingual Language Picker Bottom Sheet
     if (showLanguageSheet) {
-        ModalBottomSheet(onDismissRequest = { showLanguageSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .navigationBarsPadding()
-            ) {
-                Text(
-                    text = if (pickingTranslationTarget) "Select Target Translation Language"
-                    else "Select Assistant & Voice Language",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.height(380.dp)
-                ) {
-                    items(AgniLanguage.entries) { lang ->
-                        val active = if (pickingTranslationTarget) {
-                            lang == composer.translationTarget
-                        } else {
-                            lang == composer.selectedLanguage
-                        }
-                        Surface(
-                            onClick = {
-                                if (pickingTranslationTarget) onSelectTranslationTarget(lang)
-                                else onSelectLanguage(lang)
-                                showLanguageSheet = false
-                            },
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            else MaterialTheme.colorScheme.surfaceContainer,
-                            border = BorderStroke(
-                                1.dp,
-                                if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "${lang.displayName}  ·  ${lang.nativeName}",
-                                        style = MaterialTheme.typography.titleSmall
-                                    )
-                                    Text(
-                                        text = "Voice Locale: ${lang.localeTag}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                if (active) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.CheckCircle,
-                                        contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
+        AgniLanguagePickerSheet(
+            pickingTranslationTarget = pickingTranslationTarget,
+            selectedLanguage = composer.selectedLanguage,
+            translationTarget = composer.translationTarget,
+            onSelect = { lang ->
+                if (pickingTranslationTarget) onSelectTranslationTarget(lang)
+                else onSelectLanguage(lang)
+            },
+            onDismiss = { showLanguageSheet = false }
+        )
+    }
+
+    // Full-Screen Live Male / Female Voice Conversation Overlay
+    if (isLiveVoiceOpen) {
+        val displayedReply = when {
+            composer.isStreaming && composer.streamingText.isNotBlank() -> composer.streamingText
+            !composer.lastCompletedReplyText.isNullOrBlank() -> composer.lastCompletedReplyText
+            else -> messages.lastOrNull { it.role == "assistant" }?.content.orEmpty()
         }
+        LiveVoiceConversationOverlay(
+            language = composer.selectedLanguage,
+            voiceGender = composer.voiceGender,
+            isListening = composer.isVoiceListening,
+            isThinking = composer.isStreaming,
+            isSpeaking = isSpeaking,
+            liveUserTranscript = liveUserTranscript,
+            lastAssistantReply = displayedReply,
+            statusHint = liveVoiceHint,
+            onSelectVoiceGender = { gender ->
+                onSelectVoiceGender(gender)
+                voiceManager.stopListening()
+                voiceSpeaker.previewVoice(gender, composer.selectedLanguage.localeTag)
+            },
+            onTapMicOrInterrupt = {
+                if (composer.isVoiceListening) {
+                    voiceManager.stopListening()
+                } else {
+                    voiceSpeaker.stop()
+                    if (composer.isStreaming) onStopGeneration()
+                    liveVoiceHint = null
+                    voiceManager.startListening(composer.selectedLanguage.localeTag)
+                }
+            },
+            onStopSpeaking = {
+                voiceSpeaker.stop()
+            },
+            onEndConversation = {
+                voiceManager.stopListening()
+                voiceSpeaker.stop()
+                isLiveVoiceOpen = false
+                liveVoiceHint = null
+            }
+        )
     }
 }
 
 @Composable
-private fun WelcomeEmptyState(
+private fun FullScreenWelcomeShowcase(
     mode: AssistantMode,
     language: AgniLanguage,
+    voiceGender: AssistantVoiceGender,
+    onStartLiveVoice: (AssistantVoiceGender) -> Unit,
     onSelectPrompt: (String) -> Unit
 ) {
     val prompts = remember(mode, language) { starterPromptsFor(mode, language) }
     val greeting = remember(language) { greetingFor(language) }
 
     LazyColumn(
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxSize()
             .widthIn(max = 760.dp)
     ) {
+        // Expansive Full-Screen Hero Artwork Card
         item {
             Surface(
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(1.dp, AgniFlame.copy(alpha = 0.35f)),
+                shadowElevation = 10.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -969,84 +956,113 @@ private fun WelcomeEmptyState(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(168.dp)
+                            .height(236.dp)
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(168.dp)
+                            .height(236.dp)
                             .background(
-                                Brush.horizontalGradient(
+                                Brush.verticalGradient(
                                     colors = listOf(
-                                        NavyAbyss.copy(alpha = 0.94f),
-                                        NavyAbyss.copy(alpha = 0.68f),
-                                        NavyAbyss.copy(alpha = 0.28f)
+                                        NavyAbyss.copy(alpha = 0.35f),
+                                        NavyAbyss.copy(alpha = 0.78f),
+                                        NavyAbyss.copy(alpha = 0.96f)
                                     )
                                 )
                             )
                     )
                     Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .height(236.dp)
+                            .padding(horizontal = 20.dp, vertical = 20.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.5.dp, AgniFlame.copy(alpha = 0.8f)),
+                            color = NavyAbyss,
+                            shadowElevation = 8.dp
+                        ) {
                             Image(
                                 painter = painterResource(id = R.drawable.ic_agni_logo_fg_1795283955599),
                                 contentDescription = stringResource(R.string.cd_agni_emblem),
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "AGNI AI · ${mode.label.uppercase()}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = AgniAmber
+                                    .size(58.dp)
+                                    .clip(RoundedCornerShape(18.dp))
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = greeting,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = mode.subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFD0DCF0)
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFD0DCF0),
+                            textAlign = TextAlign.Center,
+                            maxLines = 2
                         )
                     }
                 }
             }
         }
 
+        // Direct 1-Tap Male & Female Live Voice Conversation Launchers on Welcome Canvas
         item {
-            Text(
-                text = "QUICK STARTERS (${language.nativeName})",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    WelcomeVoicePill(
+                        icon = Icons.Rounded.Face3,
+                        label = "মেয়ে ভয়েসে কথা বলুন",
+                        selected = voiceGender == AssistantVoiceGender.FEMALE,
+                        testTag = "welcome_female_voice_pill",
+                        onClick = { onStartLiveVoice(AssistantVoiceGender.FEMALE) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WelcomeVoicePill(
+                        icon = Icons.Rounded.Face,
+                        label = "ছেলে ভয়েসে কথা বলুন",
+                        selected = voiceGender == AssistantVoiceGender.MALE,
+                        testTag = "welcome_male_voice_pill",
+                        onClick = { onStartLiveVoice(AssistantVoiceGender.MALE) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
 
+        // Sleek Quick Starters
         items(prompts) { (title, prompt) ->
             Surface(
                 onClick = { onSelectPrompt(prompt) },
                 shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.9f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             if (mode == AssistantMode.CHAT) {
@@ -1054,19 +1070,19 @@ private fun WelcomeEmptyState(
                                     painter = painterResource(id = R.drawable.ic_agni_flame),
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(21.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             } else {
                                 Icon(
                                     imageVector = modeIcon(mode),
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = title,
@@ -1088,8 +1104,54 @@ private fun WelcomeEmptyState(
 }
 
 @Composable
+private fun WelcomeVoicePill(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = modifier.testTag(testTag)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp)
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun ChatMessageBubble(
     message: ChatMessage,
+    isSpeakingThis: Boolean,
+    voiceGender: AssistantVoiceGender,
+    onToggleSpeak: () -> Unit,
     onCopy: () -> Unit,
     onFeedback: () -> Unit
 ) {
@@ -1147,7 +1209,10 @@ private fun ChatMessageBubble(
             Surface(
                 shape = RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                border = BorderStroke(
+                    1.dp,
+                    if (isSpeakingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -1188,6 +1253,23 @@ private fun ChatMessageBubble(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        TextButton(
+                            onClick = onToggleSpeak,
+                            modifier = Modifier.testTag("message_speak_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isSpeakingThis) Icons.Rounded.StopCircle else Icons.AutoMirrored.Rounded.VolumeUp,
+                                contentDescription = if (isSpeakingThis) stringResource(R.string.cd_stop_speaking)
+                                else stringResource(R.string.cd_speak_message),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isSpeakingThis) "Stop" else "শুনুন (${voiceGender.bengaliLabel})",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
                         TextButton(onClick = onCopy) {
                             Icon(
                                 imageVector = Icons.Rounded.ContentCopy,
@@ -1242,45 +1324,6 @@ private fun StreamingAssistantBubble(
     }
 }
 
-@Composable
-private fun ComposerToolChip(
-    icon: ImageVector,
-    label: String,
-    testTag: String,
-    highlighted: Boolean = false,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-        else MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            1.dp,
-            if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-        ),
-        modifier = Modifier.testTag(testTag)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(17.dp)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
-        }
-    }
-}
-
 fun modeIcon(mode: AssistantMode): ImageVector = when (mode) {
     AssistantMode.CHAT -> Icons.Rounded.LocalFireDepartment
     AssistantMode.TRANSLATION -> Icons.Rounded.Translate
@@ -1291,16 +1334,16 @@ fun modeIcon(mode: AssistantMode): ImageVector = when (mode) {
 }
 
 private fun modePlaceholder(mode: AssistantMode, language: AgniLanguage): String = when (mode) {
-    AssistantMode.CHAT -> "Ask Agni AI in ${language.displayName}…"
+    AssistantMode.CHAT -> if (language == AgniLanguage.BENGALI) "অগ্নি এ আই-কে প্রশ্ন করুন বা সার্চ করুন…" else "Search or ask Agni AI in ${language.displayName}…"
     AssistantMode.TRANSLATION -> "Enter text to translate accurately…"
     AssistantMode.EDUCATION -> "Ask any concept to learn step-by-step…"
-    AssistantMode.MATH -> "Type an equation or attach a photo/PDF…"
+    AssistantMode.MATH -> "Type an equation or attach from ⋮ menu…"
     AssistantMode.CODING -> "Describe a feature, bug, or paste code…"
     AssistantMode.RESEARCH -> "Ask a topic for web-grounded research…"
 }
 
 private fun greetingFor(language: AgniLanguage): String = when (language) {
-    AgniLanguage.BENGALI -> "স্বাগতম! আজ কী তৈরি বা শিখতে চান?"
+    AgniLanguage.BENGALI -> "স্বাগতম! আজ কী জানতে চান?"
     AgniLanguage.HINDI -> "नमस्ते! आज आप क्या जानना चाहते हैं?"
     AgniLanguage.TAMIL -> "வணக்கம்! இன்று என்ன தெரிந்துகொள்ள விரும்புகிறீர்கள்?"
     AgniLanguage.TELUGU -> "నమస్కారం! ఈరోజు మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?"
