@@ -25,8 +25,10 @@ import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Face3
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Language
@@ -77,6 +79,7 @@ fun AgniMoreOptionsSheet(
     onToggleAutoSpeak: (Boolean) -> Unit,
     onTestVoice: (AssistantVoiceGender) -> Unit,
     onNewChat: () -> Unit,
+    onDeleteCurrentChat: () -> Unit,
     onAttachImage: () -> Unit,
     onAttachPdf: () -> Unit,
     onOpenMediaStudio: () -> Unit,
@@ -147,7 +150,7 @@ fun AgniMoreOptionsSheet(
                         VoiceGenderOptionCard(
                             icon = Icons.Rounded.Face3,
                             title = "মেয়ে ভয়েস",
-                            subtitle = "Female Voice",
+                            subtitle = "Sweet Female",
                             selected = composer.voiceGender == AssistantVoiceGender.FEMALE,
                             testTag = "select_female_voice_button",
                             onClick = {
@@ -244,6 +247,55 @@ fun AgniMoreOptionsSheet(
                         },
                         modifier = Modifier.weight(1f)
                     )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    QuickActionTile(
+                        icon = Icons.Rounded.History,
+                        label = "চ্যাট হিস্টোরি",
+                        testTag = "more_chat_history_button",
+                        onClick = {
+                            onDismiss()
+                            onNavigateDestination(AgniDestination.HISTORY)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (composer.activeChatId != null) {
+                        Surface(
+                            onClick = {
+                                onDismiss()
+                                onDeleteCurrentChat()
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("more_delete_current_chat_button")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 13.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "এই চ্যাট ডিলিট করুন",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "চ্যাট ডিলিট",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -385,6 +437,17 @@ fun AgniMoreOptionsSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column {
+                    MenuSettingRow(
+                        icon = Icons.Rounded.History,
+                        title = "চ্যাট হিস্টোরি (Chat History)",
+                        value = "",
+                        testTag = "more_nav_history",
+                        onClick = {
+                            onDismiss()
+                            onNavigateDestination(AgniDestination.HISTORY)
+                        }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     MenuSettingRow(
                         icon = Icons.Rounded.Dashboard,
                         title = "Hub, Usage & Files",

@@ -17,6 +17,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val TAG = "AgniAiRouter"
 private const val INFERENCE_TIMEOUT_MS = 60_000L
@@ -110,7 +113,6 @@ class FirebaseAiModelRouter : AiModelRouter {
                     "Custom AGNI Model is not configured yet. Open Settings -> Custom AGNI Model to add your FastAPI or Open-Source HTTPS endpoint URL."
                 )
             }
-            val systemInstructionText = buildSystemInstruction(request)
             val effectivePrompt = request.prompt.ifBlank {
                 when {
                     request.attachment?.isImage == true -> "The user attached an image (${request.attachment.fileName}), which this text-only custom endpoint cannot inspect directly. Explain politely how to switch to Agni Flash for vision."
@@ -118,6 +120,18 @@ class FirebaseAiModelRouter : AiModelRouter {
                     else -> "Hello"
                 }
             }
+            val shouldFetchLiveWeb = request.webResearchEnabled &&
+                request.mode in setOf(AssistantMode.CHAT, AssistantMode.RESEARCH, AssistantMode.EDUCATION) &&
+                request.attachment == null
+            val liveWebContext = if (shouldFetchLiveWeb) {
+                LiveWebSearchClient.fetchLiveContext(effectivePrompt, request.language)
+            } else {
+                LiveWebContext("", emptyList())
+            }
+            val systemInstructionText = buildSystemInstruction(
+                request = request,
+                liveWebBlock = liveWebContext.promptBlock
+            )
             val reply = try {
                 withTimeout(INFERENCE_TIMEOUT_MS) {
                     CustomOpenSourceClient.generateCompletion(
@@ -140,8 +154,8 @@ class FirebaseAiModelRouter : AiModelRouter {
             if (cleanReply.isBlank()) {
                 throw IllegalStateException("Your custom AGNI model server returned an empty response.")
             }
-            emit(AiStreamEvent.Chunk(cleanReply, emptyList()))
-            emit(AiStreamEvent.Complete(cleanReply, emptyList()))
+            emit(AiStreamEvent.Chunk(cleanReply, liveWebContext.citations))
+            emit(AiStreamEvent.Complete(cleanReply, liveWebContext.citations))
             return@flow
         }
 
@@ -153,7 +167,8 @@ class FirebaseAiModelRouter : AiModelRouter {
         }
 
         val systemInstructionText = buildSystemInstruction(request)
-        val useWebGrounding = request.mode == AssistantMode.RESEARCH && request.webResearchEnabled
+        val useWebGrounding = request.webResearchEnabled &&
+            request.mode in setOf(AssistantMode.CHAT, AssistantMode.RESEARCH, AssistantMode.EDUCATION)
 
         // Lazily construct GenerativeModel on inference (never eagerly at startup)
         val tools = if (useWebGrounding) listOf(Tool.googleSearch()) else null
@@ -271,9 +286,14 @@ class FirebaseAiModelRouter : AiModelRouter {
         }
     }
 
-    private fun buildSystemInstruction(request: AiInferenceRequest): String {
+    private fun buildSystemInstruction(
+        request: AiInferenceRequest,
+        liveWebBlock: String = ""
+    ): String {
+        val todayFormatted = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US).format(Date())
         val sb = StringBuilder()
         sb.appendLine("You are AGNI AI ('One AI. Many Possibilities.'), an original, thoughtful, high-precision multilingual AI assistant.")
+        sb.appendLine("Today's current date is $todayFormatted. Always use live web search / grounding results for current news, events, sports, prices, and 2025-2026 updates.")
         sb.appendLine("Preferred response language: ${request.language.displayName} (${request.language.nativeName}). Respond naturally in ${request.language.displayName} unless the user explicitly writes in or asks for another language.")
 
         when (request.mode) {
@@ -312,6 +332,10 @@ class FirebaseAiModelRouter : AiModelRouter {
             request.activeMemories.take(15).forEach { fact ->
                 sb.appendLine("- $fact")
             }
+        }
+        if (liveWebBlock.isNotBlank()) {
+            sb.appendLine()
+            sb.appendLine(liveWebBlock)
         }
         return sb.toString()
     }

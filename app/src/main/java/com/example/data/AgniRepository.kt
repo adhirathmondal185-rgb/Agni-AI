@@ -167,13 +167,13 @@ class AgniRepository(
         val path = "users/$userId/chats"
         emitAll(
             userDoc(userId).collection("chats")
-                .orderBy("updatedAt", Query.Direction.DESCENDING)
                 .snapshots()
                 .map { snap ->
                     snap.toObjects(ChatSession::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
                         .sortedWith(
                             compareByDescending<ChatSession> { it.pinned }
-                                .thenByDescending { it.updatedAt?.seconds ?: 0L }
+                                .thenByDescending { it.updatedAt?.seconds ?: it.createdAt?.seconds ?: Long.MAX_VALUE }
+                                .thenByDescending { it.updatedAt?.nanoseconds ?: it.createdAt?.nanoseconds ?: Int.MAX_VALUE }
                         )
                 }
                 .catch { error -> logFlowError(error, userId, OperationType.LIST, path); throw error }
@@ -256,14 +256,17 @@ class AgniRepository(
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/chats/$chatId"
         return try {
             val uid = requireUserId()
+            require(chatId.isNotBlank()) { "Chat ID cannot be blank." }
             val chatRef = userDoc(uid).collection("chats").document(chatId)
             path = chatRef.path
-            // Delete child messages first
-            val messages = chatRef.collection("messages").get().await()
-            messages.documents.chunked(400).forEach { chunk ->
-                val batch = db.batch()
-                chunk.forEach { batch.delete(it.reference) }
-                batch.commit().await()
+            // Delete child messages first; continue to delete parent chat even if subcollection is empty
+            runCatching {
+                val messages = chatRef.collection("messages").get().await()
+                messages.documents.chunked(400).forEach { chunk ->
+                    val batch = db.batch()
+                    chunk.forEach { batch.delete(it.reference) }
+                    batch.commit().await()
+                }
             }
             chatRef.delete().await()
             Result.success(Unit)
@@ -298,13 +301,34 @@ class AgniRepository(
         val path = "users/$userId/chats/$chatId/messages"
         emitAll(
             userDoc(userId).collection("chats").document(chatId).collection("messages")
-                .orderBy("createdAt", Query.Direction.ASCENDING)
                 .snapshots()
                 .map { snap ->
                     snap.toObjects(ChatMessage::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        .sortedWith(
+                            compareBy<ChatMessage> { it.createdAt?.seconds ?: Long.MAX_VALUE }
+                                .thenBy { it.createdAt?.nanoseconds ?: Int.MAX_VALUE }
+                                .thenBy { it.id }
+                        )
                 }
                 .catch { error -> logFlowError(error, userId, OperationType.LIST, path); throw error }
         )
+    }
+
+    suspend fun deleteMessage(chatId: String, messageId: String): Result<Unit> {
+        var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/chats/$chatId/messages/$messageId"
+        return try {
+            val uid = requireUserId()
+            require(chatId.isNotBlank() && messageId.isNotBlank()) { "Chat ID and Message ID are required." }
+            val msgRef = userDoc(uid).collection("chats").document(chatId).collection("messages").document(messageId)
+            path = msgRef.path
+            msgRef.delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, path)
+            Result.failure(e)
+        }
     }
 
     suspend fun addMessage(

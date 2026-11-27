@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Face3
 import androidx.compose.material.icons.rounded.Image
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -139,6 +141,8 @@ fun ChatWorkspaceScreen(
     onClearError: () -> Unit,
     onOpenFeedback: () -> Unit,
     onOpenMediaStudio: () -> Unit,
+    onDeleteCurrentChat: () -> Unit,
+    onDeleteMessage: (String) -> Unit,
     onNavigateDestination: (AgniDestination) -> Unit
 ) {
     val context = LocalContext.current
@@ -150,6 +154,7 @@ fun ChatWorkspaceScreen(
     var showModelSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
     var pickingTranslationTarget by remember { mutableStateOf(false) }
+    var confirmDeleteCurrentChat by remember { mutableStateOf(false) }
 
     var isSpeaking by remember { mutableStateOf(false) }
     var speakingMessageId by remember { mutableStateOf<String?>(null) }
@@ -564,6 +569,12 @@ fun ChatWorkspaceScreen(
                                     onCopy = {
                                         clipboard.setText(AnnotatedString(msg.content))
                                     },
+                                    onDelete = {
+                                        if (msg.id.isNotBlank()) {
+                                            if (isThisSpeaking) voiceSpeaker.stop()
+                                            onDeleteMessage(msg.id)
+                                        }
+                                    },
                                     onFeedback = onOpenFeedback
                                 )
                             }
@@ -830,6 +841,9 @@ fun ChatWorkspaceScreen(
                 voiceSpeaker.stop()
                 onNewChat()
             },
+            onDeleteCurrentChat = {
+                confirmDeleteCurrentChat = true
+            },
             onAttachImage = {
                 imagePickerLauncher.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -851,6 +865,30 @@ fun ChatWorkspaceScreen(
             onSelectMode = onSelectMode,
             onToggleTransliteration = onToggleTransliteration,
             onNavigateDestination = onNavigateDestination
+        )
+    }
+
+    if (confirmDeleteCurrentChat) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteCurrentChat = false },
+            title = { Text("এই চ্যাটটি ডিলিট করবেন?") },
+            text = { Text("এই কথোপকথনের সব মেসেজ স্থায়ীভাবে মুছে যাবে।") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteCurrentChat = false
+                        voiceSpeaker.stop()
+                        onDeleteCurrentChat()
+                    }
+                ) {
+                    Text("ডিলিট করুন", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteCurrentChat = false }) {
+                    Text("বাতিল")
+                }
+            }
         )
     }
 
@@ -1153,6 +1191,7 @@ private fun ChatMessageBubble(
     voiceGender: AssistantVoiceGender,
     onToggleSpeak: () -> Unit,
     onCopy: () -> Unit,
+    onDelete: () -> Unit,
     onFeedback: () -> Unit
 ) {
     val isUser = message.role == "user"
@@ -1203,6 +1242,27 @@ private fun ChatMessageBubble(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
+                }
+            }
+            if (message.id.isNotBlank()) {
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("delete_user_message_${message.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = "মেসেজ ডিলিট করুন",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         } else {
@@ -1281,6 +1341,21 @@ private fun ChatMessageBubble(
                         }
                         TextButton(onClick = onFeedback) {
                             Text("Feedback", style = MaterialTheme.typography.labelMedium)
+                        }
+                        if (message.id.isNotBlank()) {
+                            IconButton(
+                                onClick = onDelete,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("delete_ai_message_${message.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "মেসেজ ডিলিট করুন",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
                         }
                     }
                 }

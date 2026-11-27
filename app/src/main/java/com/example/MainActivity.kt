@@ -46,6 +46,7 @@ import com.example.firebase.configureAppCheck
 import com.example.ui.components.AgniSidebarContent
 import com.example.ui.screens.ArchitectureFlowScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.ChatHistoryScreen
 import com.example.ui.screens.ChatWorkspaceScreen
 import com.example.ui.screens.MediaStudioScreen
 import com.example.ui.screens.MemoryScreen
@@ -230,7 +231,23 @@ private fun AgniAuthenticatedShell(
                                     onClearError = { viewModel.clearError() },
                                     onOpenFeedback = { viewModel.navigateTo(AgniDestination.SETTINGS) },
                                     onOpenMediaStudio = { viewModel.navigateTo(AgniDestination.MEDIA_STUDIO) },
+                                    onDeleteCurrentChat = { viewModel.deleteActiveChat() },
+                                    onDeleteMessage = { viewModel.deleteMessage(it) },
                                     onNavigateDestination = { viewModel.navigateTo(it) }
+                                )
+                            }
+                            AgniDestination.HISTORY -> {
+                                ChatHistoryScreen(
+                                    chatsState = chatsState,
+                                    activeChatId = composer.activeChatId,
+                                    searchQuery = composer.historySearchQuery,
+                                    onSearchQueryChange = { viewModel.updateSearchQuery(it) },
+                                    onBack = { viewModel.navigateTo(AgniDestination.CHAT) },
+                                    onNewChat = { viewModel.startNewChat() },
+                                    onSelectChat = { viewModel.selectChat(it) },
+                                    onTogglePin = { viewModel.togglePinChat(it) },
+                                    onDeleteChat = { viewModel.deleteChat(it) },
+                                    onClearAllChats = { viewModel.clearAllChats() }
                                 )
                             }
                             AgniDestination.MEDIA_STUDIO -> {
@@ -351,6 +368,7 @@ private fun AgniAuthenticatedShell(
                         onSelectChat = { viewModel.selectChat(it) },
                         onTogglePin = { viewModel.togglePinChat(it) },
                         onDeleteChat = { viewModel.deleteChat(it) },
+                        onClearAllChats = { viewModel.clearAllChats() },
                         onNavigate = { viewModel.navigateTo(it) },
                         onSwitchAccount = performAccountSwitch,
                         modifier = Modifier.width(300.dp)
@@ -383,6 +401,7 @@ private fun AgniAuthenticatedShell(
                                 },
                                 onTogglePin = { viewModel.togglePinChat(it) },
                                 onDeleteChat = { viewModel.deleteChat(it) },
+                                onClearAllChats = { viewModel.clearAllChats() },
                                 onNavigate = { dest ->
                                     viewModel.navigateTo(dest)
                                     scope.launch { drawerState.close() }

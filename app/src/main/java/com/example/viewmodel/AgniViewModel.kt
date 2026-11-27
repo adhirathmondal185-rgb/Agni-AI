@@ -57,6 +57,7 @@ private const val STOP_TIMEOUT_MS = 5_000L
 
 enum class AgniDestination {
     CHAT,
+    HISTORY,
     MEDIA_STUDIO,
     HUB,
     ARCHITECTURE,
@@ -308,6 +309,7 @@ class AgniViewModel(
                 isStreaming = false,
                 streamingText = "",
                 streamingCitations = emptyList(),
+                lastCompletedReplyText = null,
                 errorBanner = null,
                 currentDestination = AgniDestination.CHAT
             )
@@ -326,6 +328,7 @@ class AgniViewModel(
                 isStreaming = false,
                 streamingText = "",
                 streamingCitations = emptyList(),
+                lastCompletedReplyText = null,
                 errorBanner = null,
                 currentDestination = AgniDestination.CHAT
             )
@@ -756,16 +759,36 @@ class AgniViewModel(
     }
 
     fun deleteChat(chatId: String) {
+        if (chatId.isBlank()) return
         viewModelScope.launch {
             if (_activeChatId.value == chatId) {
                 startNewChat()
             }
             repository.deleteChat(chatId)
                 .onSuccess {
-                    _composer.update { it.copy(statusSnackbar = "Conversation deleted.") }
+                    _composer.update { it.copy(statusSnackbar = "চ্যাট ডিলিট করা হয়েছে (Chat deleted).") }
                 }
                 .onFailure { err ->
                     _composer.update { it.copy(errorBanner = err.localizedMessage ?: "Failed to delete chat.") }
+                }
+        }
+    }
+
+    fun deleteActiveChat() {
+        val currentId = _activeChatId.value ?: return
+        deleteChat(currentId)
+    }
+
+    fun deleteMessage(messageId: String) {
+        val chatId = _activeChatId.value ?: return
+        if (messageId.isBlank()) return
+        viewModelScope.launch {
+            repository.deleteMessage(chatId, messageId)
+                .onSuccess {
+                    _composer.update { it.copy(statusSnackbar = "মেসেজ ডিলিট করা হয়েছে (Message deleted).") }
+                }
+                .onFailure { err ->
+                    _composer.update { it.copy(errorBanner = err.localizedMessage ?: "Failed to delete message.") }
                 }
         }
     }
@@ -775,7 +798,7 @@ class AgniViewModel(
             startNewChat()
             repository.clearAllChats()
                 .onSuccess {
-                    _composer.update { it.copy(statusSnackbar = "All chat history cleared.") }
+                    _composer.update { it.copy(statusSnackbar = "সব চ্যাট হিস্টোরি মুছে ফেলা হয়েছে।") }
                 }
                 .onFailure { err ->
                     _composer.update { it.copy(errorBanner = err.localizedMessage ?: "Failed to clear history.") }

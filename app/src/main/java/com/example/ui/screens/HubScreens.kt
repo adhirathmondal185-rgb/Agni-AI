@@ -568,12 +568,15 @@ fun SettingsAndFeedbackScreen(
             // Appearance (Dark / Light / System)
             item {
                 SectionCard(title = "Appearance & Theme") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         listOf("dark" to "Dark Navy", "light" to "Light Crisp", "system" to "System").forEach { (key, label) ->
                             FilterChip(
                                 selected = settings.themeMode == key,
                                 onClick = { onUpdateTheme(key) },
-                                label = { Text(label) },
+                                label = { Text(label, maxLines = 1, softWrap = false) },
                                 modifier = Modifier.testTag("theme_chip_$key")
                             )
                         }
@@ -586,7 +589,7 @@ fun SettingsAndFeedbackScreen(
                 SectionCard(title = "AI Capabilities & Preferences") {
                     SettingsToggleRow(
                         title = "Web Research Grounding",
-                        subtitle = "Use live web search citations in Research Assistant mode.",
+                        subtitle = "Use live 2026 web search across Chat, Research & Learn modes.",
                         checked = settings.webResearchEnabled,
                         onCheckedChange = onToggleWebResearch
                     )
